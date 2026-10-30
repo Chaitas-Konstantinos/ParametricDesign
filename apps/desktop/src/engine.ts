@@ -79,6 +79,8 @@ export interface Engine {
   openFile(): Promise<OpenedDesign | null>;
   /** Called with designs that LLMs send through the MCP server (desktop only). */
   onInbox(cb: (d: OpenedDesign) => void): Promise<() => void>;
+  /** Path of the bundled `pd` MCP server, if installed next to the app (desktop only). */
+  mcpServerPath(): Promise<string | null>;
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -102,6 +104,7 @@ async function desktopEngine(): Promise<Engine> {
       if (!path || Array.isArray(path)) return null;
       return invoke<OpenedDesign>("open_design_file", { path });
     },
+    mcpServerPath: () => invoke<string | null>("mcp_server_path"),
     async onInbox(cb) {
       return listen<OpenedDesign>("inbox-design", (e) => cb(e.payload));
     },
@@ -148,6 +151,9 @@ async function browserEngine(): Promise<Engine> {
     },
     async onInbox() {
       return () => {};
+    },
+    async mcpServerPath() {
+      return null;
     },
   };
 }

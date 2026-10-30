@@ -64,3 +64,5 @@ footer { display: flex; gap: 16px; padding: 5px 12px; border-top: 1px solid var(
   :root { --bg: #15171b; --panel: #1d2026; --ink: #e8eaee; --muted: #9aa1ad; --line: #2e333b; }
 }
 .copy-fix { align-self: flex-start; }
+.dialog h3 { font-size: 13px; margin: 12px 0 4px; }
+.code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; user-select: all; }

@@ -46,9 +46,13 @@ jobs:
         run: |
           npm ci
           npm run wasm
-      - name: Desktop installer
+      - name: Desktop installer (with pd.exe installed next to the app)
         working-directory: apps/desktop
-        run: npx tauri build
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          cp ../../target/release/pd.exe src-tauri/binaries/pd-x86_64-pc-windows-msvc.exe
+          npx tauri build --config '{"bundle":{"externalBin":["binaries/pd"]}}'
       - uses: actions/upload-artifact@v4
         with:
           name: parametricdesign-windows

@@ -25,6 +25,8 @@ export function App() {
   const [status, setStatus] = useState("");
   const [checkReport, setCheckReport] = useState<Report | null>(null);
   const [pasting, setPasting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [pdPath, setPdPath] = useState<string | null>(null);
   const [paste, setPaste] = useState("");
   const lastGood = useRef<Evaluation | null>(null);
 
@@ -124,6 +126,14 @@ export function App() {
         <div className="brand">ParametricDesign</div>
         <button onClick={doOpen}>Open…</button>
         <button onClick={() => setPasting(true)}>Paste JSON</button>
+        <button
+          onClick={async () => {
+            setPdPath(engine ? await engine.mcpServerPath() : null);
+            setConnecting(true);
+          }}
+        >
+          Connect AI
+        </button>
         <select
           value=""
           onChange={(e) => {
@@ -221,6 +231,40 @@ export function App() {
         <span>{engine ? (engine.kind === "desktop" ? "Native engine" : "Browser engine (WebAssembly)") : "Starting engine…"}</span>
         <span className="muted">{status}</span>
       </footer>
+      {connecting && (
+        <div className="modal" onClick={() => setConnecting(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Connect an AI assistant</h2>
+            {pdPath ? (
+              <>
+                <p className="muted">
+                  The MCP server lets Claude (or any MCP client) check, preview and open designs in this app. Designs it opens appear here automatically.
+                </p>
+                <h3>Claude Code (run in a terminal)</h3>
+                <pre className="code">{`claude mcp add --scope user parametricdesign -- "${pdPath}" mcp`}</pre>
+                <h3>Claude Desktop (Settings → Developer → Edit Config)</h3>
+                <pre className="code">{JSON.stringify({ mcpServers: { parametricdesign: { command: pdPath, args: ["mcp"] } } }, null, 2)}</pre>
+                <p className="muted">Then ask for a design, e.g. “Design a snap-lid box for 10 SD cards and open it in ParametricDesign.”</p>
+              </>
+            ) : (
+              <p className="muted">
+                The MCP server (<code>pd</code>) was not found next to the app. It ships with the installed desktop app; in a browser, or in a development build, run <code>pd mcp</code> from a build of the
+                command line instead.
+              </p>
+            )}
+            <div className="row">
+              {pdPath && (
+                <button onClick={() => navigator.clipboard.writeText(`claude mcp add --scope user parametricdesign -- "${pdPath}" mcp`).then(() => setStatus("Copied the Claude Code command."))}>
+                  Copy Claude Code command
+                </button>
+              )}
+              <button className="primary" onClick={() => setConnecting(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {pasting && (
         <div className="modal" onClick={() => setPasting(false)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>

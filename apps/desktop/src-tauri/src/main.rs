@@ -51,6 +51,15 @@ fn open_design_file(path: String) -> Result<OpenedDesign, String> {
     read_design(Path::new(&path))
 }
 
+/// The `pd` MCP server installed next to the app executable, if present.
+#[tauri::command]
+fn mcp_server_path() -> Option<String> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let name = if cfg!(windows) { "pd.exe" } else { "pd" };
+    let p = dir.join(name);
+    p.exists().then(|| p.to_string_lossy().into_owned())
+}
+
 /// Poll the inbox; send each new design to the window, then move it to inbox/opened.
 fn watch_inbox(app: tauri::AppHandle) {
     let inbox = pd_mcp::paths::inbox_dir();
@@ -82,7 +91,7 @@ fn main() {
             std::thread::spawn(move || watch_inbox(handle));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![evaluate, check_all, export_to_file, open_design_file])
+        .invoke_handler(tauri::generate_handler![evaluate, check_all, export_to_file, open_design_file, mcp_server_path])
         .run(tauri::generate_context!())
         .expect("error while running ParametricDesign");
 }
