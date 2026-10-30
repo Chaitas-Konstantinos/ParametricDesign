@@ -13,6 +13,9 @@ use manifold_rust::manifold::Manifold;
 use manifold_rust::types::Polygons;
 use std::collections::HashMap;
 
+/// Dovetail keys thinner than this snap off; the floor/wall must be at least this tall.
+const MIN_DOVETAIL_HEIGHT: f64 = 3.0;
+
 /// World -> section frame (u, v, w): w runs along the split axis, (u, v) lie
 /// in the cut plane with v vertical for x/y splits.
 fn to_section(axis: char) -> Xf {
@@ -250,7 +253,7 @@ fn joint_geometry(
                         hi = hi.min(ov.1);
                     }
                 }
-                (hi - lo >= 1.5).then_some((lo, hi))
+                (hi - lo >= MIN_DOVETAIL_HEIGHT).then_some((lo, hi))
             };
             let bounds = section(solid, axis, w0).bounds();
             let us: Vec<f64> = match f.opt_nums("positions")? {
@@ -274,7 +277,7 @@ fn joint_geometry(
                     }
                     pick_spread(&cands, count, wide + 2.0).map_err(|found| {
                         Issue::error("joint_no_room", &j.path, format!("only {found} of {count} dovetails ({}mm wide incl. flare, plus {}mm margin) fit on solid material at the seam", fmt_num(wide), margin))
-                            .hint("Lower \"count\" or \"width\"/\"depth\", thicken the part where it is cut, or use \"pin\"/\"magnet\" joints for thin walls.")
+                            .hint("Each key needs at least 3 mm of solid material height (e.g. a floor of 3 mm or more) and room for its width plus margin. Thicken the floor/part where it is cut, lower \"count\" or \"width\"/\"depth\", or use \"pin\"/\"magnet\" joints.")
                     })?
                 }
             };

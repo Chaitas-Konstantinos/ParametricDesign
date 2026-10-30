@@ -1416,6 +1416,49 @@ fn component_names() -> String {
         .join(", ")
 }
 
+/// Check references between parts on the raw JSON, so a wrong part id is
+/// reported together with any other errors instead of in a later round.
+fn check_part_refs(p: &mut P, parts: Option<&Json>) {
+    let Some(Json::Array(items)) = parts else {
+        return;
+    };
+    let ids: Vec<&str> = items
+        .iter()
+        .filter_map(|it| it.get("id").and_then(|i| i.as_str()))
+        .collect();
+    let mut check = |p: &mut P, id: &str, path: String, what: &str| {
+        if ids.contains(&id) {
+            return;
+        }
+        let hint = suggest(id, ids.iter().copied())
+            .map(|s| format!("Did you mean \"{s}\"?"))
+            .unwrap_or_else(|| format!("Part ids: {}.", ids.join(", ")));
+        p.err(
+            "unknown_ref",
+            &path,
+            format!("{what} \"{id}\" is not a part id"),
+        )
+        .hint = Some(hint);
+    };
+    for (i, it) in items.iter().enumerate() {
+        let shape = it.get("shape");
+        if shape.and_then(|s| s.get("type")).and_then(|t| t.as_str()) == Some("lid") {
+            if let Some(f) = shape.and_then(|s| s.get("fits")).and_then(|f| f.as_str()) {
+                check(p, f, format!("parts[{i}].shape.fits"), "lid fits");
+            }
+        }
+        if let Some(on) = it
+            .get("place")
+            .and_then(|pl| pl.get("on"))
+            .and_then(|o| o.as_str())
+        {
+            if let Some((pid, _)) = on.split_once('.') {
+                check(p, pid, format!("parts[{i}].place.on"), "place.on refers to");
+            }
+        }
+    }
+}
+
 pub fn join(path: &str, key: &str) -> String {
     if path.is_empty() {
         key.to_string()
@@ -1583,6 +1626,7 @@ pub fn parse(json: &Json) -> (Option<Design>, Vec<Issue>) {
             p.err("missing_field", "parts", "design has no \"parts\"");
         }
     }
+    check_part_refs(&mut p, root.get("parts"));
     let mut seen = std::collections::HashSet::new();
     for part in &parts {
         if !seen.insert(part.id.clone()) {

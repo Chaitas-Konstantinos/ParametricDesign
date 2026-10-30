@@ -1,0 +1,24 @@
+{
+  "skills": [
+    { "id": "core-parametric", "title": "Core: parametric design format", "core": true,
+      "summary": "The pd/0.1 JSON format, components, anchors and the validate-render-fix workflow." },
+    { "id": "printability", "title": "Core: designing for 3D printing", "core": true,
+      "summary": "FDM rules: walls, tolerances, overhangs, orientation, bed size." },
+    { "id": "from-photos", "title": "Core: sizes from photos and descriptions", "core": true,
+      "summary": "Turning photos, sketches and rough descriptions into dimensions and params." },
+    { "id": "multi-part", "title": "Multi-part models", "group": null,
+      "summary": "Objects printed as separate pieces: splitting large parts, assemblies, clearances." },
+    { "id": "connector-dovetail", "title": "Connector: dovetail", "group": "connector", "requires": ["multi-part"],
+      "summary": "Split pieces joined by sliding dovetail keys (flat or tray-like objects)." },
+    { "id": "connector-pin", "title": "Connector: alignment pins", "group": "connector", "requires": ["multi-part"],
+      "summary": "Split pieces aligned with printed pins (or filament / dowels) and glued." },
+    { "id": "connector-magnet", "title": "Connector: magnets", "group": "connector", "requires": ["multi-part"],
+      "summary": "Split pieces held by disc magnets: removable, any cut direction." },
+    { "id": "connector-snap-fit", "title": "Snap-fit lids", "group": "closure",
+      "summary": "Boxes whose lids click on: snap bumps and grooves." },
+    { "id": "connector-screws", "title": "Screws, nuts and heat-set inserts",
+      "summary": "Metric screw holes, countersinks, nut traps and inserts to bolt parts together or mount them." },
+    { "id": "electronics-enclosure", "title": "Electronics enclosures", "requires": ["connector-screws"],
+      "summary": "Cases for circuit boards: standoffs, port cut-outs, ventilation, screwed lids." }
+  ]
+}

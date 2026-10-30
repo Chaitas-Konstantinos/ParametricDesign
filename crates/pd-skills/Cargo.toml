@@ -1,0 +1,12 @@
+[package]
+name = "pd-skills"
+description = "ParametricDesign skill catalog: export single skills or bundle a tailored skill"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+pd-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

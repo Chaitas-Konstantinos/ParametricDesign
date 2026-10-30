@@ -1,0 +1,11 @@
+[package]
+name = "pd-render"
+description = "ParametricDesign headless software renderer for previews"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pd-core.workspace = true
+manifold-rust.workspace = true
+png = "0.18.1"
