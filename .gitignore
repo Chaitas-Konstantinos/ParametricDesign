@@ -3,3 +3,6 @@ node_modules/
 dist/
 *.wasm
 /out
+# app data when the repo is cloned to Documents\ParametricDesign (the app's default home on Windows)
+/inbox/
+/exports/
