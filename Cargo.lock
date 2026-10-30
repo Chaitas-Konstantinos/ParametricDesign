@@ -244,6 +244,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pd-app"
+version = "0.1.0"
+dependencies = [
+ "pd-core",
+ "pd-export",
+ "pd-render",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pd-cli"
 version = "0.1.0"
 dependencies = [
@@ -301,6 +312,15 @@ dependencies = [
  "pd-core",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pd-wasm"
+version = "0.1.0"
+dependencies = [
+ "pd-app",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

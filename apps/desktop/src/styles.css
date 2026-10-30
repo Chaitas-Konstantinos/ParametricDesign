@@ -1,0 +1,66 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #1b1e24;
+  --muted: #6b7280;
+  --line: #e2e5ea;
+  --accent: #1d6fd8;
+  --error: #c62828;
+  --warn: #9a6700;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, select, input, textarea { font: inherit; }
+button, select {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+button.link { border: none; background: none; color: var(--accent); padding: 4px 0; }
+.app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font-weight: 700; margin-right: 8px; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.seg button.on { background: var(--ink); color: white; border-color: var(--ink); }
+.toggle { display: inline-flex; align-items: center; gap: 4px; }
+main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+.stage { position: relative; min-width: 0; }
+.viewer { position: absolute; inset: 0; }
+.title { position: absolute; top: 10px; left: 14px; display: flex; gap: 10px; align-items: baseline; pointer-events: none; }
+.title h1 { font-size: 18px; margin: 0; }
+.parts { position: absolute; top: 40px; left: 14px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.parts li { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,.2); }
+.issues { position: absolute; left: 12px; right: 12px; bottom: 12px; max-height: 40%; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.issue { background: var(--panel); border-left: 4px solid var(--warn); border-radius: 6px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.issue.error { border-left-color: var(--error); }
+.issue .hint { color: var(--muted); margin-top: 3px; }
+aside { background: var(--panel); border-left: 1px solid var(--line); padding: 12px 14px; overflow: auto; }
+aside h2 { font-size: 15px; margin: 0 0 8px; }
+fieldset { border: none; padding: 0; margin: 0 0 14px; }
+legend { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 6px; }
+.param { display: grid; gap: 3px; margin-bottom: 10px; }
+.param.adv .pname::after { content: " · advanced"; color: var(--muted); font-size: 11px; }
+.num { display: grid; grid-template-columns: 1fr 72px auto; gap: 6px; align-items: center; }
+.num input[type="number"] { width: 72px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; }
+.unit { color: var(--muted); font-size: 12px; }
+.param-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.muted { color: var(--muted); }
+footer { display: flex; gap: 16px; padding: 5px 12px; border-top: 1px solid var(--line); background: var(--panel); font-size: 12px; }
+.modal { position: fixed; inset: 0; background: rgba(15, 18, 24, .45); display: grid; place-items: center; }
+.dialog { background: var(--panel); border-radius: 10px; padding: 16px; width: min(720px, 92vw); }
+.dialog h2 { margin: 0 0 6px; font-size: 16px; }
+.dialog textarea { width: 100%; height: 320px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.dialog .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15171b; --panel: #1d2026; --ink: #e8eaee; --muted: #9aa1ad; --line: #2e333b; }
+}
+.copy-fix { align-self: flex-start; }

@@ -1,7 +1,6 @@
 # ParametricDesign — Product & Technical Spec (v0, pre-development)
 
-Status: **draft for sign-off**. Records the decisions made during the kickoff Q&A.
-Nothing here is implemented yet.
+Status: **milestone 1 implemented** (see §15). Records the decisions made during the kickoff Q&A.
 
 ## 1. The idea in one paragraph
 
@@ -257,12 +256,12 @@ community-contributed skills.
 
 ## 13. Known technical risks (to spike early)
 
-1. **Manifold from one Rust core on native and in WASM.** Manifold is C++. Verify the
-   Rust bindings for native, and a WASM path (emscripten target, or calling the
-   official `manifold-3d` WASM build from the Rust/WASM core). Spike in M1, week 1.
+1. ~~**Manifold from one Rust core on native and in WASM.**~~ **Resolved in M1**: the
+   pure-Rust port `manifold-rust` compiles natively and to `wasm32-unknown-unknown`
+   with no C++ toolchain; the whole engine is a 2.9 MB WASM module.
 2. **OpenCascade in Rust.** The bindings are young; desktop only (M3).
-3. **Headless rendering** for `render_preview` (wgpu offscreen) on Windows without a
-   visible window.
+3. ~~**Headless rendering**~~ **Resolved in M1** with a small CPU rasteriser (no GPU,
+   works in CI and in the browser).
 4. **Skill quality** decides the whole product. The eval suite gates every
    skill change.
 5. **Windows code signing**, to avoid SmartScreen warnings; needs a certificate or
@@ -278,3 +277,35 @@ community-contributed skills.
 | Units | mm internally; mm/inch display toggle |
 | UI language | English first, i18n-ready |
 | UI framework | React + TypeScript + three.js (react-three-fiber) |
+
+## 15. Milestone 1 status
+
+Done:
+
+- `pd-core`: the pd/0.1 format, expressions, 15 components (box, cylinder, sphere,
+  tube, prism, revolve, torus, wedge, slot, hollow_box, lid with snap fit, screw_hole,
+  nut_trap, magnet_pocket, standoff), anchor placement, repeat/mirror, splits with
+  dovetail / pin / magnet joints, validation at every param's min and max,
+  printability checks, measurements. Errors carry a JSON path, a fix hint and
+  "did you mean" suggestions.
+- STL and 3MF export (parts, colours, plate layout, thumbnail, embedded design that
+  reopens editable). OBJ/GLB move to M2.
+- Headless preview renderer; MCP server (validate, render, measure, open in app,
+  export, component list, design guide); `pd` CLI.
+- Skills: 3 core + 7 optional, tailored bundling, single-prompt export; reference
+  designs validated by tests.
+- Desktop app (Tauri 2 + React + three.js): viewer, Simple/Advanced sliders,
+  exploded view, STL/3MF export, open .pd.json/.3mf, paste JSON, inbox for
+  `open_in_app`, "copy fix-it message for your LLM". The same UI runs in a browser
+  on the WebAssembly engine.
+- Eval suite: 20 requests + harness (one-shot and with MCP tools).
+
+Not done yet / next:
+
+- **Run the evals against real models** (needs an API key) and tune the skills
+  until first-try ≥ 80 % and after-self-fix ≥ 95 %.
+- Windows installer is built by CI but not yet signed; `pd.exe` should ship inside
+  the installer with a "Connect to Claude Desktop" button (M2).
+- M2 items from the roadmap: measuring tools, dimension labels, section view in the
+  app, full slicer 3MF metadata (per-object filament slots, plates, print settings),
+  OBJ/GLB, printer profiles, text component.
