@@ -133,6 +133,7 @@ fn build_model(
         &json,
         &ValidateOptions {
             overrides: o.clone(),
+            printer: None,
             extremes: false,
             thorough: false,
         },
@@ -162,6 +163,7 @@ fn main() -> ExitCode {
             };
             let opts = ValidateOptions {
                 overrides: overrides(&args),
+                printer: None,
                 extremes: !args.has("--quick"),
                 thorough: true,
             };

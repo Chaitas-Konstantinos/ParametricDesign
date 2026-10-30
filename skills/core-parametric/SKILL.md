@@ -10,13 +10,14 @@ You write one JSON document in the `pd/0.1` format. The ParametricDesign app tur
 ## Workflow
 
 1. **Read the request completely.** List the object's function, every size the user gave, what it must fit or hold, and how it will be printed.
-2. **Decide instead of asking.** Ask a question only when the design is impossible without the answer (for example, a case for a device whose size is unknown and not in a photo). Otherwise pick sensible defaults (see the printability skill) and make every uncertain size a param. Say what you assumed in `meta.description`.
-3. **Sketch the layout in your head**: which parts, which base shape for each, which features are added or cut, and where they sit. Use the coordinate rules below.
-4. **Write the JSON.**
-5. **Check it.**
-   - If you have the ParametricDesign tools (MCP): call `validate_design` and fix **every** error, then call `render_preview` and *look at the image*: is every part where it belongs, the right size and the right way up? Use `layout: "exploded"` for multi-part designs and `section` to see inside. Use `measure` for fits (for example the gap between a lid and its box). Repeat until it is valid and looks right, then call `open_in_app`.
+2. **Changing the open design?** If the user says "this box", "make it taller", "add holes to it" and you have the ParametricDesign tools, call `get_open_design` first and edit *that* JSON: keep its param names, part ids and the slider values they chose (use them as the new defaults when it makes sense). Send it back with `open_in_app` `mode: "update"` and a one-sentence `message` saying what changed; the user sees the old and new versions side by side and accepts or rejects. For a *different* object, use `mode: "new"`: it goes into their library.
+3. **Decide instead of asking.** Ask a question only when the design is impossible without the answer (for example, a case for a device whose size is unknown and not in a photo). Otherwise pick sensible defaults (see the printability skill) and make every uncertain size a param. Say what you assumed in `meta.description`.
+4. **Sketch the layout in your head**: which parts, which base shape for each, which features are added or cut, and where they sit. Use the coordinate rules below.
+5. **Write the JSON.**
+6. **Check it.**
+   - If you have the ParametricDesign tools (MCP): call `validate_design` and fix **every** error, then call `render_preview` and *look at the image*: is every part where it belongs, the right size and the right way up? Use `layout: "exploded"` for multi-part designs and `section` to see inside. Use `measure` for fits (for example the gap between a lid and its box). Repeat until it is valid and looks right, then send it with `open_in_app`.
    - Without tools: go through the self-check list at the end of this skill line by line.
-6. **Answer** with the complete JSON in a single ```json block, then a short list of the main sliders. Never send a partial design or "...". If you used `open_in_app`, say that the design is open in the app.
+7. **Answer** with a short summary and the main sliders. If you sent it with `open_in_app`, say it is in the app (as a new design, or as an update waiting for them to accept) and don't repeat the whole JSON; otherwise give the complete JSON in a single ```json block. Never send a partial design or "...".
 
 ## Coordinates and units
 

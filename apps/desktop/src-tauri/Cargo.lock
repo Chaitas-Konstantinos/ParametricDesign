@@ -2195,7 +2195,7 @@ name = "parametricdesign"
 version = "0.1.0"
 dependencies = [
  "pd-app",
- "pd-mcp",
+ "pd-library",
  "serde",
  "serde_json",
  "tauri",
@@ -2257,13 +2257,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "pd-mcp"
+name = "pd-library"
 version = "0.1.0"
 dependencies = [
- "pd-core",
- "pd-export",
- "pd-render",
- "pd-skills",
+ "serde",
  "serde_json",
 ]
 
@@ -2274,15 +2271,6 @@ dependencies = [
  "manifold-rust",
  "pd-core",
  "png",
-]
-
-[[package]]
-name = "pd-skills"
-version = "0.1.0"
-dependencies = [
- "pd-core",
- "serde",
- "serde_json",
 ]
 
 [[package]]

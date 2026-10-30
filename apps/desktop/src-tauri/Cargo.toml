@@ -17,7 +17,7 @@ tauri-plugin-dialog = "2.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 pd-app = { path = "../../../crates/pd-app" }
-pd-mcp = { path = "../../../crates/pd-mcp" }
+pd-library = { path = "../../../crates/pd-library" }
 
 [profile.dev.package.manifold-rust]
 opt-level = 3

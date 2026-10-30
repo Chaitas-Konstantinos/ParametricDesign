@@ -16,6 +16,7 @@ pd-render = { path = "crates/pd-render" }
 pd-skills = { path = "crates/pd-skills" }
 pd-mcp = { path = "crates/pd-mcp" }
 pd-app = { path = "crates/pd-app" }
+pd-library = { path = "crates/pd-library" }
 manifold-rust = "0.19"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

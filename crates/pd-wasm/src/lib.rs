@@ -9,16 +9,16 @@ fn js_err(e: String) -> JsValue {
 
 /// JSON `{report, meshes}`.
 #[wasm_bindgen]
-pub fn evaluate(design: &str, params: &str) -> Result<String, JsValue> {
-    pd_app::evaluate(design, params)
+pub fn evaluate(design: &str, params: &str, opts: &str) -> Result<String, JsValue> {
+    pd_app::evaluate(design, params, opts)
         .map(|e| serde_json::to_string(&e).unwrap())
         .map_err(js_err)
 }
 
 /// JSON report, including every param's min and max.
 #[wasm_bindgen]
-pub fn check_all(design: &str, params: &str) -> Result<String, JsValue> {
-    pd_app::check_all(design, params)
+pub fn check_all(design: &str, params: &str, opts: &str) -> Result<String, JsValue> {
+    pd_app::check_all(design, params, opts)
         .map(|r| serde_json::to_string(&r).unwrap())
         .map_err(js_err)
 }
@@ -28,10 +28,11 @@ pub fn check_all(design: &str, params: &str) -> Result<String, JsValue> {
 pub fn export_file(
     design: &str,
     params: &str,
+    opts: &str,
     format: &str,
     part: Option<String>,
 ) -> Result<Vec<u8>, JsValue> {
-    pd_app::export(design, params, format, part.as_deref()).map_err(js_err)
+    pd_app::export(design, params, opts, format, part.as_deref()).map_err(js_err)
 }
 
 #[wasm_bindgen]

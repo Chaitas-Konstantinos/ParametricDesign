@@ -64,13 +64,40 @@ pub struct Report {
 #[derive(Clone, Debug, Default)]
 pub struct ValidateOptions {
     pub overrides: Overrides,
+    /// The user's printer; overrides the design's own print hints.
+    pub printer: Option<Printer>,
     /// Also build at each numeric param's min and max (and every choice).
     pub extremes: bool,
     /// Run the slower thin-wall / overhang checks.
     pub thorough: bool,
 }
 
-pub fn check_options(design: &Design, thorough: bool) -> CheckOptions {
+/// The printer a design is checked and exported for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Printer {
+    pub bed: [f64; 3],
+    pub nozzle: f64,
+}
+
+impl Printer {
+    pub fn from_json(v: Option<&Json>) -> Option<Printer> {
+        let v = v?;
+        let bed = v.get("bed")?.as_array()?;
+        if bed.len() != 3 {
+            return None;
+        }
+        let b: Vec<f64> = bed.iter().filter_map(|x| x.as_f64()).collect();
+        if b.len() != 3 || b.iter().any(|x| *x <= 0.0) {
+            return None;
+        }
+        Some(Printer {
+            bed: [b[0], b[1], b[2]],
+            nozzle: v.get("nozzle").and_then(|n| n.as_f64()).unwrap_or(0.4),
+        })
+    }
+}
+
+pub fn check_options(design: &Design, thorough: bool, printer: Option<Printer>) -> CheckOptions {
     let mut o = CheckOptions {
         thorough,
         ..Default::default()
@@ -80,6 +107,10 @@ pub fn check_options(design: &Design, thorough: bool) -> CheckOptions {
     }
     if let Some(b) = design.print.bed {
         o.bed = b;
+    }
+    if let Some(p) = printer {
+        o.bed = p.bed;
+        o.nozzle = p.nozzle;
     }
     o.supports_ok = design.print.supports.unwrap_or(false);
     o
@@ -142,6 +173,16 @@ pub fn analyze(
     overrides: &Overrides,
     thorough: bool,
 ) -> (Option<Design>, Option<Model>, Vec<Issue>) {
+    analyze_for(json, overrides, thorough, None)
+}
+
+/// [`analyze`] for a specific printer.
+pub fn analyze_for(
+    json: &Json,
+    overrides: &Overrides,
+    thorough: bool,
+    printer: Option<Printer>,
+) -> (Option<Design>, Option<Model>, Vec<Issue>) {
     let (design, mut issues) = parse(json);
     let Some(design) = design else {
         return (None, None, issues);
@@ -149,7 +190,7 @@ pub fn analyze(
     let model = build(&design, overrides);
     issues.extend(model.issues.iter().cloned());
     if !model.has_errors() {
-        issues.extend(check(&model, &check_options(&design, thorough)));
+        issues.extend(check(&model, &check_options(&design, thorough, printer)));
     }
     (Some(design), Some(model), issues)
 }
@@ -201,7 +242,8 @@ fn variants(design: &Design, base: &Overrides) -> Vec<(String, Overrides)> {
 }
 
 pub fn validate(json: &Json, opts: &ValidateOptions) -> (Report, Option<Design>, Option<Model>) {
-    let (design, model, mut issues) = analyze(json, &opts.overrides, opts.thorough);
+    let (design, model, mut issues) =
+        analyze_for(json, &opts.overrides, opts.thorough, opts.printer);
     if let (Some(d), Some(m)) = (&design, &model) {
         if opts.extremes && !m.has_errors() {
             let seen: Vec<(&'static str, String)> =
@@ -211,7 +253,7 @@ pub fn validate(json: &Json, opts: &ValidateOptions) -> (Report, Option<Design>,
                 let vm = build(d, &o);
                 let mut found: Vec<Issue> = vm.issues.clone();
                 if !vm.has_errors() {
-                    found.extend(check(&vm, &check_options(d, false)));
+                    found.extend(check(&vm, &check_options(d, false, opts.printer)));
                 }
                 for mut i in found.into_iter().filter(|i| i.severity == Severity::Error) {
                     if seen.iter().any(|(c, p)| *c == i.code && *p == i.path)

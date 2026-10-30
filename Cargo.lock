@@ -286,11 +286,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pd-library"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pd-mcp"
 version = "0.1.0"
 dependencies = [
  "pd-core",
  "pd-export",
+ "pd-library",
  "pd-render",
  "pd-skills",
  "serde_json",

@@ -10,15 +10,21 @@ use serde_json::{json, Value as Json};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
-pub mod paths;
-
 const PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCTIONS: &str = "ParametricDesign turns pd/0.1 JSON designs into printable 3D models. \
 Workflow: (1) if you have not loaded the ParametricDesign skill, call get_design_guide first; \
-(2) write the design; (3) call validate_design and fix every error; (4) call render_preview and look at the images \
-to confirm the shape matches the request; use measure for fits and clearances; (5) when it is right, call open_in_app \
-so the user can fine-tune it with sliders and export. Never show the user a design that has not passed validate_design.";
+(2) if the user talks about the design they have open (\"this box\", \"make it taller\"), call get_open_design and \
+change THAT design, keeping its params and ids; (3) write the design; (4) call validate_design and fix every error; \
+(5) call render_preview and look at the images to confirm the shape matches the request; use measure for fits and \
+clearances; (6) when it is right, call open_in_app: mode \"update\" for a change to the open design (the user sees a \
+side-by-side compare and accepts it), mode \"new\" for a different design (it is added to their library). \
+Never show the user a design that has not passed validate_design.";
+
+/// The printer chosen in the app's settings, used for bed-size checks.
+fn user_printer() -> Option<pd_core::Printer> {
+    pd_core::Printer::from_json(pd_library::config::printer().as_ref())
+}
 
 fn tools() -> Json {
     let design = json!({
@@ -73,10 +79,22 @@ fn tools() -> Json {
             "annotations": {"readOnlyHint": true}
         },
         {
+            "name": "get_open_design",
+            "title": "Get the design open in the app",
+            "description": "Returns the design the user has open in the ParametricDesign app right now: its id, name, version, the slider values they are using and the full design JSON. Call this before changing \"this design\"; then send the change back with open_in_app mode \"update\".",
+            "inputSchema": {"type": "object", "properties": {}},
+            "annotations": {"readOnlyHint": true}
+        },
+        {
             "name": "open_in_app",
-            "title": "Open in ParametricDesign",
-            "description": "Saves the design to the ParametricDesign inbox; the desktop app opens it right away so the user can adjust the sliders, measure and export. Only call this after validate_design passes.",
-            "inputSchema": {"type": "object", "properties": {"design": design, "name": {"type": "string", "description": "File name hint."}}, "required": ["design"]}
+            "title": "Send to ParametricDesign",
+            "description": "Sends a validated design to the ParametricDesign app. mode \"new\" (default): adds it to the user's library as a new design. mode \"update\": proposes it as a new version of an existing design (design_id from get_open_design); the app shows the old and new side by side and the user accepts or rejects it. Give a short message saying what changed. Only call this after validate_design passes.",
+            "inputSchema": {"type": "object", "properties": {
+                "design": design,
+                "mode": {"type": "string", "enum": ["new", "update"], "description": "new = another design; update = change to an existing design."},
+                "design_id": {"type": "string", "description": "For mode update: the id from get_open_design. Defaults to the design open in the app."},
+                "message": {"type": "string", "description": "What changed or what this is, in one sentence (shown to the user)."}
+            }, "required": ["design"]}
         },
         {
             "name": "export_design",
@@ -139,6 +157,7 @@ fn built(
         &design_json,
         &ValidateOptions {
             overrides,
+            printer: user_printer(),
             extremes: false,
             thorough: false,
         },
@@ -204,6 +223,7 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
                 &design_json,
                 &ValidateOptions {
                     overrides,
+                    printer: user_printer(),
                     extremes: true,
                     thorough: true,
                 },
@@ -260,6 +280,31 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
             let res = pd_core::measure::measure(&model, &queries);
             Ok(json!({"content": [text(serde_json::to_string_pretty(&res).unwrap())]}))
         }
+        "get_open_design" => {
+            let Some(cur) = pd_library::config::read_current() else {
+                return Ok(
+                    json!({"content": [text("The ParametricDesign app has not reported an open design. Ask the user to open the design in the app, or create a new one with open_in_app mode \"new\".")]}),
+                );
+            };
+            if !cur.get("open").and_then(|o| o.as_bool()).unwrap_or(false) {
+                return Ok(
+                    json!({"content": [text("No design is open in the ParametricDesign app right now (the user is in the library). Ask which design they mean, or create a new one with open_in_app mode \"new\".")]}),
+                );
+            }
+            let summary = format!(
+                "Open in the app: \"{}\" (design_id {}, version v{}{}). The params object holds the slider values the user is looking at; keep the param names and part ids when you change it, and send it back with open_in_app mode \"update\".",
+                cur.get("name").and_then(|n| n.as_str()).unwrap_or("?"),
+                cur.get("designId").and_then(|n| n.as_str()).unwrap_or("?"),
+                cur.get("version").and_then(|n| n.as_u64()).unwrap_or(0),
+                if cur.get("unsaved").and_then(|u| u.as_bool()).unwrap_or(false) { ", with unsaved slider changes" } else { "" }
+            );
+            Ok(
+                json!({"content": [text(summary), text(serde_json::to_string_pretty(&json!({
+                "designId": cur.get("designId"), "name": cur.get("name"), "version": cur.get("version"),
+                "params": cur.get("params"), "design": cur.get("design")
+            })).unwrap())]}),
+            )
+        }
         "open_in_app" => {
             let raw = args
                 .get("design")
@@ -268,6 +313,7 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
             let (report, _, _) = validate(
                 &design_json,
                 &ValidateOptions {
+                    printer: user_printer(),
                     extremes: false,
                     thorough: false,
                     ..Default::default()
@@ -275,19 +321,38 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
             );
             if !report.ok {
                 return Err(tool_error(format!(
-                    "Not opened: fix the errors first.\n\n{}",
+                    "Not sent: fix the errors first.\n\n{}",
                     report.to_text()
                 )));
             }
-            let hint = args
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or(&report.name)
+            let mode = args.get("mode").and_then(|m| m.as_str()).unwrap_or("new");
+            let message = args
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("")
                 .to_string();
-            let path = paths::write_inbox(&hint, &design_json).map_err(tool_error)?;
-            Ok(
-                json!({"content": [text(format!("Saved to {}. The ParametricDesign app opens new files from its inbox automatically; if it is not running, ask the user to start it (or open this file from it).", path.display()))]}),
-            )
+            let item = if mode == "update" {
+                let id = args
+                    .get("design_id")
+                    .and_then(|d| d.as_str())
+                    .map(String::from)
+                    .or_else(|| {
+                        pd_library::config::read_current()
+                            .filter(|c| c.get("open").and_then(|o| o.as_bool()).unwrap_or(false))
+                            .and_then(|c| c.get("designId").and_then(|d| d.as_str()).map(String::from))
+                    })
+                    .ok_or_else(|| tool_error("mode \"update\" needs design_id (call get_open_design), or a design open in the app"))?;
+                json!({"kind": "update", "designId": id, "design": design_json, "message": message})
+            } else {
+                json!({"kind": "new", "design": design_json, "message": message})
+            };
+            pd_library::config::write_inbox(&item).map_err(tool_error)?;
+            let note = if mode == "update" {
+                format!("Sent \"{}\" to the app as an update. The user now sees the current and the new version side by side and decides whether to accept it.", report.name)
+            } else {
+                format!("Sent \"{}\" to the app; it is added to the user's library (marked new from Claude). If the app is not running, it appears the next time it starts.", report.name)
+            };
+            Ok(json!({"content": [text(note)]}))
         }
         "export_design" => {
             let (design_json, design, model, _) = built(args)?;
@@ -336,7 +401,8 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
             };
             let path = match args.get("path").and_then(|p| p.as_str()) {
                 Some(p) => PathBuf::from(p),
-                None => paths::exports_dir().join(format!("{}.{fmt}", paths::slug(&design.name))),
+                None => pd_library::config::exports_dir()
+                    .join(format!("{}.{fmt}", pd_library::slug(&design.name))),
             };
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| tool_error(e.to_string()))?;
@@ -519,7 +585,7 @@ mod tests {
             handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none()
         );
         let r = handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).unwrap();
-        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 7);
+        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 8);
     }
 
     #[test]
@@ -535,5 +601,37 @@ mod tests {
         let bad = json!({"format": "pd/0.1", "parts": [{"id": "a", "shape": {"type": "cube"}}]});
         let r = call_tool("render_preview", &json!({"design": bad}));
         assert_eq!(r["isError"], true);
+    }
+
+    #[test]
+    fn open_design_and_update_flow() {
+        let home = std::env::temp_dir().join(format!("pd-mcp-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::env::set_var("PD_HOME", &home);
+        let d = json!({"format": "pd/0.1", "meta": {"name": "Cup"}, "parts": [{"id": "a", "shape": {"type": "cylinder", "d": 60, "h": 80}}]});
+        let r = call_tool("get_open_design", &json!({}));
+        assert!(r["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("not reported"));
+        pd_library::config::write_current(&json!({"open": true, "designId": "cup-1", "name": "Cup", "version": 3, "params": {}, "design": d})).unwrap();
+        let r = call_tool("get_open_design", &json!({}));
+        assert!(r["content"][0]["text"].as_str().unwrap().contains("cup-1"));
+        let r = call_tool(
+            "open_in_app",
+            &json!({"design": d, "mode": "update", "message": "taller"}),
+        );
+        assert!(r.get("isError").is_none(), "{r}");
+        let files: Vec<_> = std::fs::read_dir(home.join("inbox"))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(files.len(), 1);
+        let item: Json =
+            serde_json::from_str(&std::fs::read_to_string(files[0].path()).unwrap()).unwrap();
+        assert_eq!(item["kind"], "update");
+        assert_eq!(item["designId"], "cup-1");
+        assert_eq!(item["message"], "taller");
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

@@ -23,7 +23,7 @@ pub use eval::Overrides;
 pub use expr::Value;
 pub use issues::{Issue, Severity};
 pub use mesh::Mesh;
-pub use validate::{validate, Report, ValidateOptions};
+pub use validate::{validate, Printer, Report, ValidateOptions};
 
 /// Convert a JSON object of `{name: value}` into parameter overrides.
 pub fn overrides_from_json(v: Option<&serde_json::Value>) -> Overrides {

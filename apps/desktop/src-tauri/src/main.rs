@@ -1,71 +1,59 @@
-// The desktop app: the native engine behind Tauri commands, plus a watcher
-// that opens designs LLMs drop into the inbox through the MCP server.
+// The desktop app: the native engine and the design library behind Tauri
+// commands, plus a watcher that brings in designs Claude sends through the
+// MCP server.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::Serialize;
-use std::path::{Path, PathBuf};
+use pd_library::{config, Library};
+use serde_json::{json, Value as Json};
+use std::path::Path;
+use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, State};
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct OpenedDesign {
-    text: String,
-    params: serde_json::Value,
-    file_name: String,
+struct AppState {
+    lib: Mutex<Option<Library>>,
+}
+
+type R<T> = Result<T, String>;
+
+fn with_lib<T>(state: &State<AppState>, f: impl FnOnce(&Library) -> R<T>) -> R<T> {
+    let guard = state
+        .lib
+        .lock()
+        .map_err(|_| "library lock poisoned".to_string())?;
+    match guard.as_ref() {
+        Some(lib) => f(lib),
+        None => Err("No library folder is set up yet. Choose one in Settings.".into()),
+    }
+}
+
+fn parse(design: &str) -> R<Json> {
+    serde_json::from_str(design).map_err(|e| format!("The design is not valid JSON: {e}"))
+}
+
+// --- engine -------------------------------------------------------------------
+
+#[tauri::command(async)]
+fn evaluate(design: String, params: String, opts: String) -> R<pd_app::Evaluation> {
+    pd_app::evaluate(&design, &params, &opts)
 }
 
 #[tauri::command(async)]
-fn evaluate(design: String, params: String) -> Result<pd_app::Evaluation, String> {
-    pd_app::evaluate(&design, &params)
-}
-
-#[tauri::command(async)]
-fn check_all(design: String, params: String) -> Result<pd_app::Report, String> {
-    pd_app::check_all(&design, &params)
+fn check_all(design: String, params: String, opts: String) -> R<pd_app::Report> {
+    pd_app::check_all(&design, &params, &opts)
 }
 
 #[tauri::command(async)]
 fn export_to_file(
     design: String,
     params: String,
+    opts: String,
     format: String,
+    part: Option<String>,
     path: String,
-) -> Result<(), String> {
-    let bytes = pd_app::export(&design, &params, &format, None)?;
+) -> R<()> {
+    let bytes = pd_app::export(&design, &params, &opts, &format, part.as_deref())?;
     std::fs::write(&path, bytes).map_err(|e| format!("cannot write {path}: {e}"))
-}
-
-fn read_design(path: &Path) -> Result<OpenedDesign, String> {
-    let file_name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    if file_name.to_lowercase().ends_with(".3mf") {
-        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-        let embedded = pd_app::import_3mf(&bytes)?;
-        return Ok(OpenedDesign {
-            text: serde_json::to_string_pretty(&embedded["design"]).unwrap(),
-            params: embedded
-                .get("params")
-                .cloned()
-                .filter(|p| p.is_object())
-                .unwrap_or(serde_json::json!({})),
-            file_name,
-        });
-    }
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    Ok(OpenedDesign {
-        text,
-        params: serde_json::json!({}),
-        file_name,
-    })
-}
-
-#[tauri::command(async)]
-fn open_design_file(path: String) -> Result<OpenedDesign, String> {
-    read_design(Path::new(&path))
 }
 
 /// The `pd` MCP server installed next to the app executable, if present.
@@ -77,35 +65,225 @@ fn mcp_server_path() -> Option<String> {
     p.exists().then(|| p.to_string_lossy().into_owned())
 }
 
-/// Poll the inbox; send each new design to the window, then move it to inbox/opened.
+// --- settings -----------------------------------------------------------------
+
+#[tauri::command]
+fn get_settings() -> Json {
+    let mut s = config::load_settings();
+    s["defaultLibraryPath"] = json!(config::default_library_path().to_string_lossy());
+    s
+}
+
+#[tauri::command]
+fn save_settings(state: State<AppState>, settings: Json) -> R<()> {
+    let mut s = settings;
+    if let Some(o) = s.as_object_mut() {
+        o.remove("defaultLibraryPath");
+    }
+    if let Some(path) = s
+        .get("libraryPath")
+        .and_then(|p| p.as_str())
+        .filter(|p| !p.is_empty())
+    {
+        let lib = Library::open(path)?;
+        *state.lib.lock().map_err(|_| "library lock poisoned")? = Some(lib);
+    }
+    config::save_settings(&s)
+}
+
+/// Tell the MCP server what is open (`{"open": false}` in the library).
+#[tauri::command]
+fn set_current(state: Json) -> R<()> {
+    let mut s = state;
+    s["updated"] = json!(pd_library::now_ms());
+    config::write_current(&s)
+}
+
+// --- library ------------------------------------------------------------------
+
+#[tauri::command(async)]
+fn library_list(state: State<AppState>) -> R<Vec<pd_library::Summary>> {
+    with_lib(&state, |l| Ok(l.list()))
+}
+
+#[tauri::command(async)]
+fn library_detail(state: State<AppState>, id: String) -> R<pd_library::Detail> {
+    with_lib(&state, |l| l.detail(&id))
+}
+
+#[tauri::command(async)]
+fn library_read_version(state: State<AppState>, id: String, file: Option<String>) -> R<Json> {
+    with_lib(&state, |l| match file {
+        Some(f) => l.read_version(&id, &f),
+        None => l.current_version(&id),
+    })
+}
+
+#[tauri::command(async)]
+fn library_create(
+    state: State<AppState>,
+    design: String,
+    params: Json,
+    source: String,
+    message: String,
+) -> R<String> {
+    let d = parse(&design)?;
+    with_lib(&state, |l| l.create(&d, &params, &source, &message, false))
+}
+
+#[tauri::command(async)]
+fn library_save_version(
+    state: State<AppState>,
+    id: String,
+    design: String,
+    params: Json,
+    author: String,
+    message: String,
+    rejected: bool,
+) -> R<pd_library::VersionInfo> {
+    let d = parse(&design)?;
+    with_lib(&state, |l| {
+        l.save_version(&id, &d, &params, &author, &message, rejected)
+    })
+}
+
+#[tauri::command(async)]
+fn library_update_meta(
+    state: State<AppState>,
+    id: String,
+    patch: Json,
+) -> R<pd_library::DesignMeta> {
+    with_lib(&state, |l| l.update_meta(&id, &patch))
+}
+
+#[tauri::command(async)]
+fn library_set_presets(
+    state: State<AppState>,
+    id: String,
+    presets: Vec<pd_library::Preset>,
+) -> R<()> {
+    with_lib(&state, |l| l.set_presets(&id, &presets))
+}
+
+#[tauri::command(async)]
+fn library_set_thumbnail(state: State<AppState>, id: String, png: String) -> R<()> {
+    let bytes = pd_library::unbase64(&png)?;
+    with_lib(&state, |l| l.set_thumbnail(&id, &bytes))
+}
+
+#[tauri::command(async)]
+fn library_delete(state: State<AppState>, id: String) -> R<()> {
+    with_lib(&state, |l| l.delete_forever(&id))
+}
+
+#[tauri::command(async)]
+fn library_duplicate(
+    state: State<AppState>,
+    id: String,
+    file: Option<String>,
+    name: String,
+) -> R<String> {
+    with_lib(&state, |l| l.duplicate(&id, file.as_deref(), &name))
+}
+
+#[tauri::command(async)]
+fn library_read_pending(state: State<AppState>, id: String, file: String) -> R<Json> {
+    with_lib(&state, |l| l.read_pending(&id, &file))
+}
+
+#[tauri::command(async)]
+fn library_remove_pending(state: State<AppState>, id: String, file: String) -> R<()> {
+    with_lib(&state, |l| l.remove_pending(&id, &file))
+}
+
+#[tauri::command(async)]
+fn library_collections(state: State<AppState>) -> R<Json> {
+    with_lib(&state, |l| Ok(l.collections()))
+}
+
+#[tauri::command(async)]
+fn library_set_collections(state: State<AppState>, collections: Json) -> R<()> {
+    with_lib(&state, |l| l.set_collections(&collections))
+}
+
+/// Add a `.pd.json` or a `.3mf` exported by the app to the library.
+#[tauri::command(async)]
+fn library_import_file(state: State<AppState>, path: String) -> R<String> {
+    let p = Path::new(&path);
+    let (design, params) = if path.to_lowercase().ends_with(".3mf") {
+        let bytes = std::fs::read(p).map_err(|e| format!("cannot read {path}: {e}"))?;
+        let embedded = pd_app::import_3mf(&bytes)?;
+        (
+            embedded["design"].clone(),
+            embedded.get("params").cloned().unwrap_or(json!({})),
+        )
+    } else {
+        let text = std::fs::read_to_string(p).map_err(|e| format!("cannot read {path}: {e}"))?;
+        (parse(&text)?, json!({}))
+    };
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    with_lib(&state, |l| {
+        l.create(
+            &design,
+            &params,
+            "import",
+            &format!("Imported from {name}"),
+            false,
+        )
+    })
+}
+
+const EXAMPLES: &[&str] = &[
+    include_str!("../../../../examples/snap-lid-box.pd.json"),
+    include_str!("../../../../examples/board-enclosure.pd.json"),
+    include_str!("../../../../examples/wall-bracket.pd.json"),
+    include_str!("../../../../examples/dovetail-tray.pd.json"),
+    include_str!("../../../../examples/vase.pd.json"),
+];
+
+#[tauri::command(async)]
+fn library_add_examples(state: State<AppState>) -> R<usize> {
+    with_lib(&state, |l| {
+        let mut n = 0;
+        for e in EXAMPLES {
+            l.create(&parse(e)?, &json!({}), "example", "Example design", false)?;
+            n += 1;
+        }
+        Ok(n)
+    })
+}
+
+/// Bring in designs Claude dropped in the inbox; tell the window about them.
 fn watch_inbox(app: tauri::AppHandle) {
-    let inbox = pd_mcp::paths::inbox_dir();
-    let done = inbox.join("opened");
-    let _ = std::fs::create_dir_all(&done);
     loop {
-        if let Ok(entries) = std::fs::read_dir(&inbox) {
-            let mut files: Vec<PathBuf> = entries
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.is_file() && p.to_string_lossy().ends_with(".pd.json"))
-                .collect();
-            files.sort();
-            for f in files {
-                if let Ok(d) = read_design(&f) {
-                    let _ = app.emit("inbox-design", d);
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.set_focus();
-                    }
-                }
-                let _ = std::fs::rename(&f, done.join(f.file_name().unwrap()));
+        std::thread::sleep(Duration::from_millis(800));
+        let state = app.state::<AppState>();
+        let events = match state.lib.lock() {
+            Ok(g) => match g.as_ref() {
+                Some(lib) => lib.process_inbox(&config::inbox_dir()),
+                None => continue,
+            },
+            Err(_) => continue,
+        };
+        if !events.is_empty() {
+            let _ = app.emit("library-inbox", &events);
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_focus();
             }
         }
-        std::thread::sleep(Duration::from_millis(800));
     }
 }
 
 fn main() {
+    let lib = config::library_path().and_then(|p| Library::open(p).ok());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(AppState {
+            lib: Mutex::new(lib),
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || watch_inbox(handle));
@@ -115,8 +293,26 @@ fn main() {
             evaluate,
             check_all,
             export_to_file,
-            open_design_file,
-            mcp_server_path
+            mcp_server_path,
+            get_settings,
+            save_settings,
+            set_current,
+            library_list,
+            library_detail,
+            library_read_version,
+            library_create,
+            library_save_version,
+            library_update_meta,
+            library_set_presets,
+            library_set_thumbnail,
+            library_delete,
+            library_duplicate,
+            library_read_pending,
+            library_remove_pending,
+            library_collections,
+            library_set_collections,
+            library_import_file,
+            library_add_examples
         ])
         .run(tauri::generate_context!())
         .expect("error while running ParametricDesign");
