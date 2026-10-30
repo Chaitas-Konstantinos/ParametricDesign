@@ -65,16 +65,12 @@ fn mcp_server_path() -> Option<String> {
     if beside.exists() {
         return Some(beside.to_string_lossy().into_owned());
     }
-    // development builds: use `cargo build --release -p pd-cli` from the repo
-    if cfg!(debug_assertions) {
-        for dir in exe.ancestors() {
-            let p = dir.join("target").join("release").join(name);
-            if p.exists() && dir.join("crates").join("pd-cli").exists() {
-                return Some(p.to_string_lossy().into_owned());
-            }
-        }
-    }
-    None
+    // running from a checkout: use `cargo build --release -p pd-cli` from the repo
+    exe.ancestors()
+        .filter(|dir| dir.join("crates").join("pd-cli").exists())
+        .map(|dir| dir.join("target").join("release").join(name))
+        .find(|p| p.exists())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 // --- settings -----------------------------------------------------------------
