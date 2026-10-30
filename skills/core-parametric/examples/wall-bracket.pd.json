@@ -1,0 +1,58 @@
+{
+  "format": "pd/0.1",
+  "meta": {
+    "name": "L shelf bracket",
+    "description": "Wall-mounted L bracket with a side rib and countersunk screw holes. The wall is behind the plate (+Y); the shelf arm points forward (-Y). Prints on its side with the rib on the bed.",
+    "category": "household/mounting",
+    "tags": ["bracket", "shelf", "wall", "screw"],
+    "license": "CC-BY-4.0",
+    "skills": ["core-parametric", "printability"]
+  },
+  "params": {
+    "arm":       { "value": 80, "min": 40, "max": 150, "unit": "mm", "label": "Shelf arm length", "group": "Size" },
+    "drop":      { "value": 80, "min": 40, "max": 150, "unit": "mm", "label": "Wall plate height", "group": "Size" },
+    "width":     { "value": 30, "min": 25, "max": 60, "unit": "mm", "label": "Bracket width", "group": "Size" },
+    "thickness": { "value": 5, "min": 4, "max": 8, "step": 0.5, "unit": "mm", "label": "Plate thickness", "group": "Strength", "advanced": true },
+    "screw":     { "value": "M4", "options": ["M3", "M4", "M5"], "label": "Screw size", "group": "Mounting" },
+    "holes":     { "value": 2, "type": "integer", "min": 1, "max": 3, "label": "Screws in the wall plate", "group": "Mounting" }
+  },
+  "derived": {
+    "gusset": "min(arm, drop) * 0.6",
+    "hole_span": "(drop - thickness - 16) / max(holes, 1)"
+  },
+  "parts": [
+    {
+      "id": "bracket",
+      "name": "Bracket",
+      "shape": { "type": "box", "size": ["width", "thickness", "drop"] },
+      "add": [
+        {
+          "id": "shelf",
+          "shape": { "type": "box", "size": ["width", "arm", "thickness"] },
+          "place": { "on": "top-back", "anchor": "top-back", "orient": "none" }
+        },
+        {
+          "_comment": "triangular rib between plate and shelf, flush with the +X side so it lies on the bed when printed",
+          "shape": { "type": "wedge", "size": ["thickness", "gusset", "gusset"] },
+          "place": { "on": "front-top", "anchor": "back-top", "orient": "none", "rotate": [0, 180, 0], "offset": ["width/2 - thickness/2", 0, "-thickness"] }
+        }
+      ],
+      "cut": [
+        {
+          "shape": { "type": "screw_hole", "size": "screw", "through": true, "head": "countersunk" },
+          "place": { "on": "front", "offset": [0, 0, "-thickness/2"] },
+          "repeat": { "linear": "holes", "step": [0, 0, "hole_span"] }
+        },
+        {
+          "_comment": "screws up into the shelf board, beside the gussets' line",
+          "shape": { "type": "screw_hole", "size": "screw", "through": true, "head": "countersunk" },
+          "place": { "on": "shelf.top", "offset": [0, "-arm * 0.2", 0] }
+        }
+      ],
+      "color": "#2a9d48",
+      "_print": "printed lying on its side: no overhangs and layer lines run along the L, which is much stronger",
+      "print_rotate": [0, 90, 0]
+    }
+  ],
+  "print": { "layer_height": 0.2, "infill": 40, "walls": 4, "supports": false }
+}

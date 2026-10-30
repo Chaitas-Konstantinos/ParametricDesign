@@ -1426,7 +1426,7 @@ fn check_part_refs(p: &mut P, parts: Option<&Json>) {
         .iter()
         .filter_map(|it| it.get("id").and_then(|i| i.as_str()))
         .collect();
-    let mut check = |p: &mut P, id: &str, path: String, what: &str| {
+    let check = |p: &mut P, id: &str, path: String, what: &str| {
         if ids.contains(&id) {
             return;
         }

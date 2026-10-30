@@ -1,0 +1,24 @@
+{
+  "format": "pd/0.1",
+  "meta": { "name": "Simple vase", "description": "Revolved vase with adjustable belly and wall.", "category": "home/decor", "tags": ["vase", "revolve"], "license": "CC0-1.0", "skills": ["core-parametric", "printability"] },
+  "params": {
+    "height": { "value": 120, "min": 60, "max": 250, "unit": "mm", "label": "Height" },
+    "base":   { "value": 30, "min": 15, "max": 60, "unit": "mm", "label": "Base radius" },
+    "belly":  { "value": 45, "min": 20, "max": 80, "unit": "mm", "label": "Belly radius" },
+    "neck":   { "value": 22, "min": 10, "max": 50, "unit": "mm", "label": "Neck radius" },
+    "wall":   { "value": 2, "min": 1.2, "max": 4, "step": 0.1, "unit": "mm", "label": "Wall", "advanced": true }
+  },
+  "parts": [
+    {
+      "id": "vase",
+      "shape": {
+        "type": "revolve",
+        "profile": [
+          [0, 0], ["base", 0], ["belly", "height * 0.4"], ["neck", "height * 0.85"], ["neck + 3", "height"],
+          ["neck + 3 - wall", "height"], ["neck - wall", "height * 0.85"], ["belly - wall", "height * 0.4"], ["base - wall", "wall * 1.5"], [0, "wall * 1.5"]
+        ]
+      },
+      "color": "#20c4d8"
+    }
+  ]
+}

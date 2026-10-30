@@ -1,0 +1,36 @@
+{
+  "format": "pd/0.1",
+  "meta": {
+    "name": "Snap-lid storage box",
+    "description": "Rounded storage box with a snap-on lid. Size it by the inside dimensions of what it must hold.",
+    "category": "storage/boxes",
+    "tags": ["box", "lid", "snap-fit", "storage"],
+    "license": "CC-BY-4.0",
+    "skills": ["core-parametric", "printability", "connector-snap-fit"]
+  },
+  "params": {
+    "width":   { "value": 80, "min": 20, "max": 200, "step": 1, "unit": "mm", "label": "Inside width", "group": "Size" },
+    "depth":   { "value": 50, "min": 20, "max": 200, "step": 1, "unit": "mm", "label": "Inside depth", "group": "Size" },
+    "height":  { "value": 30, "min": 10, "max": 120, "step": 1, "unit": "mm", "label": "Inside height", "group": "Size" },
+    "corner":  { "value": 4, "min": 0, "max": 15, "step": 0.5, "unit": "mm", "label": "Corner rounding", "group": "Style" },
+    "box_color": { "value": "#1d6fd8", "type": "color", "label": "Box color", "group": "Style" },
+    "lid_color": { "value": "#f2f2f2", "type": "color", "label": "Lid color", "group": "Style" },
+    "wall":    { "value": 2, "min": 1.2, "max": 4, "step": 0.1, "unit": "mm", "label": "Wall thickness", "group": "Fit & strength", "advanced": true },
+    "fit":     { "value": 0.2, "min": 0.05, "max": 0.5, "step": 0.05, "unit": "mm", "label": "Lid clearance", "description": "Gap between lid lip and box wall. Increase if the lid is too tight.", "group": "Fit & strength", "advanced": true }
+  },
+  "parts": [
+    {
+      "id": "box",
+      "name": "Box",
+      "shape": { "type": "hollow_box", "inner": ["width", "depth", "height"], "wall": "wall", "radius": "max(corner, wall + 0.5)" },
+      "color": "box_color"
+    },
+    {
+      "id": "lid",
+      "name": "Lid",
+      "shape": { "type": "lid", "fits": "box", "style": "snap", "clearance": "fit", "thickness": 2, "lip_height": 5 },
+      "color": "lid_color"
+    }
+  ],
+  "print": { "layer_height": 0.2, "infill": 15, "walls": 3, "supports": false }
+}

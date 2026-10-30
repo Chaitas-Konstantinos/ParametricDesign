@@ -1,0 +1,74 @@
+{
+  "format": "pd/0.1",
+  "meta": {
+    "name": "Circuit board enclosure",
+    "description": "Case for a circuit board on four standoffs, with one port cut-out on the front wall and a vented lid. Defaults fit a Raspberry Pi 4/5 (85 x 56 mm board, M2.5 holes 58 x 49 mm apart, 3.5 mm from the left/top/bottom edges).",
+    "category": "electronics/enclosures",
+    "tags": ["enclosure", "case", "raspberry pi", "standoffs", "vents"],
+    "license": "CC-BY-4.0",
+    "skills": ["core-parametric", "printability", "electronics-enclosure", "connector-screws"]
+  },
+  "params": {
+    "board_w":   { "value": 85, "min": 30, "max": 160, "step": 0.5, "unit": "mm", "label": "Board length (X)", "group": "Board" },
+    "board_d":   { "value": 56, "min": 20, "max": 120, "step": 0.5, "unit": "mm", "label": "Board width (Y)", "group": "Board" },
+    "hole_x":    { "value": 58, "min": 10, "max": 150, "step": 0.5, "unit": "mm", "label": "Hole spacing X", "group": "Board" },
+    "hole_y":    { "value": 49, "min": 10, "max": 110, "step": 0.5, "unit": "mm", "label": "Hole spacing Y", "group": "Board" },
+    "hole_shift":{ "value": -10, "min": -40, "max": 40, "step": 0.5, "unit": "mm", "label": "Hole pattern offset from board centre (X)", "group": "Board", "advanced": true },
+    "height":    { "value": 28, "min": 15, "max": 60, "unit": "mm", "label": "Inside height", "group": "Case" },
+    "port_w":    { "value": 16, "min": 4, "max": 40, "step": 0.5, "unit": "mm", "label": "Port cut-out width", "group": "Ports" },
+    "port_h":    { "value": 14, "min": 3, "max": 20, "step": 0.5, "unit": "mm", "label": "Port cut-out height", "group": "Ports" },
+    "port_x":    { "value": 0, "min": -30, "max": 30, "step": 0.5, "unit": "mm", "label": "Port position along the front", "group": "Ports" },
+    "vents":     { "value": 6, "type": "integer", "min": 0, "max": 10, "label": "Lid vent slots", "group": "Case" },
+    "gap":       { "value": 2, "min": 1, "max": 5, "step": 0.5, "unit": "mm", "label": "Gap around the board", "group": "Fit", "advanced": true },
+    "standoff_h":{ "value": 5, "min": 3, "max": 12, "step": 0.5, "unit": "mm", "label": "Standoff height", "group": "Fit", "advanced": true },
+    "wall":      { "value": 2, "min": 1.6, "max": 3, "step": 0.1, "unit": "mm", "label": "Wall thickness", "group": "Fit", "advanced": true },
+    "fit":       { "value": 0.2, "min": 0.1, "max": 0.4, "step": 0.05, "unit": "mm", "label": "Lid clearance", "group": "Fit", "advanced": true }
+  },
+  "derived": {
+    "_comment": "hole pattern clamped so the standoffs always stay under the board, whatever the sliders say",
+    "hx": "min(hole_x, board_w - 7)",
+    "hy": "min(hole_y, board_d - 7)",
+    "shift": "clamp(hole_shift, -(board_w - hx) / 2 + 3.5, (board_w - hx) / 2 - 3.5)",
+    "board_top": "wall + standoff_h + 1.6",
+    "outer_h": "height + wall",
+    "port_z": "board_top + port_h / 2 - outer_h / 2"
+  },
+  "parts": [
+    {
+      "id": "base",
+      "name": "Base",
+      "shape": { "type": "hollow_box", "inner": ["board_w + 2 * gap", "board_d + 2 * gap", "height"], "wall": "wall", "radius": 3 },
+      "add": [
+        {
+          "id": "posts",
+          "shape": { "type": "standoff", "screw": "M2.5", "h": "standoff_h", "fit": "tap" },
+          "place": { "on": "inside_bottom", "offset": ["shift", 0, 0] },
+          "repeat": { "grid": [2, 2], "spacing": ["hx", "hy"] }
+        }
+      ],
+      "cut": [
+        {
+          "_comment": "port opening in the front wall, its bottom just above the board",
+          "shape": { "type": "box", "size": ["port_w", "port_h", "wall + 1"] },
+          "place": { "on": "front", "offset": ["port_x", 0, "port_z"] }
+        }
+      ],
+      "color": "#1a1a1a"
+    },
+    {
+      "id": "lid",
+      "name": "Lid",
+      "shape": { "type": "lid", "fits": "base", "style": "snap", "clearance": "fit" },
+      "cut": [
+        {
+          "shape": { "type": "slot", "length": "board_w * 0.6", "width": 2.5, "h": 3 },
+          "place": { "on": "top" },
+          "repeat": { "linear": "max(vents, 1)", "step": [0, 6, 0] },
+          "enabled": "vents > 0"
+        }
+      ],
+      "color": "#f2f2f2"
+    }
+  ],
+  "print": { "layer_height": 0.2, "infill": 20, "walls": 3 }
+}

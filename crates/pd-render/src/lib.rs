@@ -108,7 +108,7 @@ struct Tri {
 
 struct Scene {
     tris: Vec<Tri>,
-    edges: Vec<(V3, V3, V3, V3)>, // a, b, n1, n2
+    edges: Vec<(V3, V3, V3, V3, [f32; 3])>, // a, b, n1, n2, line colour
     bbox: Bbox,
 }
 
@@ -250,9 +250,15 @@ fn build_scene(model: &Model, opts: &RenderOptions) -> Scene {
                 cap,
             });
         }
+        let lum = 0.3 * color[0] + 0.59 * color[1] + 0.11 * color[2];
+        let line = if lum < 0.3 {
+            [0.62, 0.64, 0.68]
+        } else {
+            [0.13, 0.14, 0.17]
+        };
         for ((a, b), ns) in edge_map {
             if ns.len() == 2 {
-                edges.push((pos(a), pos(b), ns[0], ns[1]));
+                edges.push((pos(a), pos(b), ns[0], ns[1], line));
             }
         }
     }
@@ -384,7 +390,7 @@ fn render_view(scene: &Scene, view: View, size: usize, world_per_px: f64, center
     // crease + silhouette edges
     let bias = world_per_px * 2.5;
     let crease = 25f64.to_radians().cos();
-    for (a, b, n1, n2) in &scene.edges {
+    for (a, b, n1, n2, line) in &scene.edges {
         let front1 = dot(*n1, f) < 0.0;
         let front2 = dot(*n2, f) < 0.0;
         let silhouette = front1 != front2;
@@ -407,7 +413,7 @@ fn render_view(scene: &Scene, view: View, size: usize, world_per_px: f64, center
                 }
                 let k = yi as usize * n + xi as usize;
                 if d <= z[k] + bias {
-                    img.rgb[k] = [0.13, 0.14, 0.17];
+                    img.rgb[k] = *line;
                 }
             }
         }
