@@ -292,7 +292,7 @@ impl Library {
                 }
             }
         }
-        out.sort_by(|a, b| (b.num, b.created).cmp(&(a.num, a.created)));
+        out.sort_by_key(|v| std::cmp::Reverse((v.num, v.created)));
         Ok(out)
     }
 
@@ -346,7 +346,7 @@ impl Library {
                 });
             }
         }
-        out.sort_by(|a, b| b.meta.modified.cmp(&a.meta.modified));
+        out.sort_by_key(|s| std::cmp::Reverse(s.meta.modified));
         out
     }
 

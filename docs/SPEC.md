@@ -300,12 +300,30 @@ Done:
   on the WebAssembly engine.
 - Eval suite: 20 requests + harness (one-shot and with MCP tools).
 
+Library and editor (after M1, from user feedback):
+
+- Library home in a folder the user picks (OneDrive/Dropbox-safe): every save is a
+  new immutable version file, so sync conflicts become extra versions instead of
+  lost work. Favorites, recent, collections, categories, tags, search, trash,
+  automatic thumbnails, import of .pd.json / .3mf.
+- Editor: view cube and standard views, ortho/perspective, display modes (shaded,
+  shaded + edges, wireframe, x-ray), measure with snapping, section with caps, build
+  plate, exploded view, undo/redo, named presets, manual Save with auto-written
+  version messages, version history (open / copy as new design), Save / Don't save /
+  Cancel when leaving with changes.
+- Claude loop: `get_open_design` lets Claude read the open design and slider values;
+  `open_in_app` with mode `update` sends a pending update that opens a side-by-side
+  (or overlay) compare showing parameter and part changes; Accept saves a new
+  version, Reject keeps it in history marked "not accepted". Mode `new` lands in the
+  library as "New from Claude".
+- Settings: theme follows Windows with a switch, accent colour, text size, mm/inch,
+  printer profiles (bed and nozzle feed the checks, the plate and 3MF layout).
+
 Not done yet / next:
 
 - **Run the evals against real models** (needs an API key) and tune the skills
   until first-try ≥ 80 % and after-self-fix ≥ 95 %.
 - Windows installer is built by CI but not yet signed; `pd.exe` should ship inside
   the installer with a "Connect to Claude Desktop" button (M2).
-- M2 items from the roadmap: measuring tools, dimension labels, section view in the
-  app, full slicer 3MF metadata (per-object filament slots, plates, print settings),
-  OBJ/GLB, printer profiles, text component.
+- M2 items from the roadmap: dimension labels, full slicer 3MF metadata (per-object
+  filament slots, plates, print settings), OBJ/GLB, text component.

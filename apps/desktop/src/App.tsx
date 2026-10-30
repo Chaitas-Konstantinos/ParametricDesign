@@ -1,293 +1,157 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadEngine, type Engine, type Evaluation, type OpenedDesign, type ParamValue, type Params, type Report } from "./engine";
-import { ParamPanel } from "./ParamPanel";
-import { Viewer } from "./Viewer";
-import { EXAMPLES } from "./examples";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { loadApi, type Api, type InboxEvent } from "./api";
+import { applyTheme, palette, type Palette } from "./theme";
+import { withDefaults, type Settings } from "./settings";
+import { UiProvider, useUi } from "./components/ui";
+import type { ViewerColors } from "./components/Viewer";
+import { LibraryScreen } from "./screens/Library";
+import { EditorScreen } from "./screens/Editor";
+import { SettingsScreen } from "./screens/Settings";
 
-function fmt(v: number) {
-  return String(Math.round(v * 10) / 10);
+export type Route = { name: "loading" } | { name: "welcome" } | { name: "library" } | { name: "editor"; id: string; review?: string } | { name: "settings"; back: Route };
+
+interface AppState {
+  api: Api;
+  settings: Settings;
+  pal: Palette;
+  colors: ViewerColors;
+  saveSettings(s: Settings): Promise<void>;
+  go(r: Route): Promise<void>;
+  route: Route;
+  /** Bumps when the library changed outside the current screen (e.g. Claude). */
+  libraryRev: number;
+  bumpLibrary(): void;
+  lastInbox: { rev: number; events: InboxEvent[] };
+  /** The editor registers this: resolves true when it is OK to leave. */
+  leaveGuard: React.MutableRefObject<(() => Promise<boolean>) | null>;
 }
 
-function slug(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "design";
+const Ctx = createContext<AppState | null>(null);
+
+export function useApp(): AppState {
+  const a = useContext(Ctx);
+  if (!a) throw new Error("app context missing");
+  return a;
+}
+
+/** Effect cleanup for a listener that is registered asynchronously: if the
+ *  effect is torn down before registration finishes, unregister right after. */
+function unsubscribeLater(registering: Promise<() => void>) {
+  let off: (() => void) | undefined;
+  let gone = false;
+  registering.then((f) => (gone ? f() : (off = f)));
+  return () => {
+    gone = true;
+    off?.();
+  };
+}
+
+function Shell({ api }: { api: Api }) {
+  const ui = useUi();
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [route, setRoute] = useState<Route>({ name: "loading" });
+  const [systemTick, setSystemTick] = useState(0);
+  const [libraryRev, setLibraryRev] = useState(0);
+  const [lastInbox, setLastInbox] = useState<{ rev: number; events: InboxEvent[] }>({ rev: 0, events: [] });
+  const leaveGuard = useRef<(() => Promise<boolean>) | null>(null);
+  const routeRef = useRef(route);
+  routeRef.current = route;
+
+  useEffect(() => {
+    api.getSettings().then((raw) => {
+      const s = withDefaults(raw);
+      setSettings(s);
+      setRoute(s.libraryPath ? { name: "library" } : { name: "welcome" });
+    });
+  }, [api]);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const on = () => setSystemTick((t) => t + 1);
+    mq?.addEventListener("change", on);
+    return () => mq?.removeEventListener("change", on);
+  }, []);
+
+  const pal = useMemo(() => (settings ? applyTheme(settings) : palette(withDefaults({}))), [settings, systemTick]);
+  const colors = useMemo<ViewerColors>(
+    () => ({ viewer: pal.viewer, plate: pal.plate, grid: pal.grid, gridMajor: pal.gridMajor, accent: pal.accent, accentText: pal.accentText, text: pal.text, muted: pal.muted, danger: pal.dark ? "#e0524f" : "#d93a36" }),
+    [pal],
+  );
+
+  const go = useCallback(async (r: Route) => {
+    const cur = routeRef.current;
+    if (cur.name === "editor" && leaveGuard.current && !(r.name === "editor" && r.id === cur.id)) {
+      if (!(await leaveGuard.current())) return;
+    }
+    if (r.name !== "editor") void api.setCurrent({ open: false });
+    setRoute(r);
+  }, [api]);
+
+  // designs and updates from Claude
+  useEffect(
+    () =>
+      unsubscribeLater(
+        api.onInbox((events) => {
+          setLibraryRev((n) => n + 1);
+          setLastInbox((li) => ({ rev: li.rev + 1, events }));
+          for (const ev of events) {
+            const cur = routeRef.current;
+            if (ev.kind === "update" && cur.name === "editor" && cur.id === ev.id) continue; // the editor opens the compare itself
+            if (ev.kind === "new") {
+              ui.toast(`Claude created “${ev.name}”`, { kind: "info", action: { label: "Open", run: () => void go({ name: "editor", id: ev.id }) } });
+            } else {
+              ui.toast(`Claude sent an update to “${ev.name}”`, { kind: "info", action: { label: "Review", run: () => void go({ name: "editor", id: ev.id, review: "latest" }) } });
+            }
+          }
+        }),
+      ),
+    [api, go],
+  );
+
+  // closing the window with unsaved changes
+  useEffect(() => unsubscribeLater(api.onCloseRequested(async () => (leaveGuard.current ? leaveGuard.current() : true))), [api]);
+
+  if (!settings) return <div className="splash">Starting…</div>;
+
+  const state: AppState = {
+    api,
+    settings,
+    pal,
+    colors,
+    async saveSettings(s) {
+      await api.saveSettings(s);
+      setSettings({ ...s });
+    },
+    go,
+    route,
+    libraryRev,
+    bumpLibrary: () => setLibraryRev((n) => n + 1),
+    lastInbox,
+    leaveGuard,
+  };
+
+  return (
+    <Ctx.Provider value={state}>
+      {route.name === "loading" && <div className="splash">Loading…</div>}
+      {route.name === "welcome" && <SettingsScreen welcome />}
+      {route.name === "library" && <LibraryScreen />}
+      {route.name === "editor" && <EditorScreen key={route.id} id={route.id} review={route.review} />}
+      {route.name === "settings" && <SettingsScreen back={route.back} />}
+    </Ctx.Provider>
+  );
 }
 
 export function App() {
-  const [engine, setEngine] = useState<Engine | null>(null);
-  const [designText, setDesignText] = useState(EXAMPLES[0].text);
-  const [designKey, setDesignKey] = useState("example-0");
-  const [values, setValues] = useState<Params>({});
-  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-  const [fatal, setFatal] = useState<string | null>(null);
-  const [advanced, setAdvanced] = useState(false);
-  const [exploded, setExploded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
-  const [checkReport, setCheckReport] = useState<Report | null>(null);
-  const [pasting, setPasting] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const [pdPath, setPdPath] = useState<string | null>(null);
-  const [paste, setPaste] = useState("");
-  const lastGood = useRef<Evaluation | null>(null);
-
+  const [api, setApi] = useState<Api | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    loadEngine().then(setEngine, (e) => setFatal(`Could not start the engine: ${e}`));
+    loadApi().then(setApi, (e) => setError(String(e)));
   }, []);
-
-  const load = useCallback((d: OpenedDesign) => {
-    setDesignText(d.text);
-    setValues(d.params);
-    setDesignKey(`${d.fileName}-${Date.now()}`);
-    setCheckReport(null);
-    setStatus(`Opened ${d.fileName}`);
-  }, []);
-
-  // designs sent by an LLM through the MCP server
-  useEffect(() => {
-    if (!engine) return;
-    let off: (() => void) | undefined;
-    engine.onInbox(load).then((f) => (off = f));
-    return () => off?.();
-  }, [engine, load]);
-
-  // rebuild whenever the design or a slider changes
-  useEffect(() => {
-    if (!engine) return;
-    let cancelled = false;
-    const t = setTimeout(async () => {
-      setBusy(true);
-      try {
-        const ev = await engine.evaluate(designText, values);
-        if (cancelled) return;
-        setFatal(null);
-        setEvaluation(ev);
-        if (ev.meshes.length) lastGood.current = ev;
-      } catch (e) {
-        if (!cancelled) setFatal(String(e));
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
-    }, 90);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [engine, designText, values]);
-
-  const report = evaluation?.report;
-  const meshes = evaluation?.meshes.length ? evaluation.meshes : lastGood.current?.meshes ?? [];
-  const name = report?.name || "design";
-  const errors = report?.errors ?? [];
-  const warnings = report?.warnings ?? [];
-  const hasAdvanced = useMemo(() => report?.params.some((p) => p.advanced) ?? false, [report]);
-
-  const setParam = (n: string, v: ParamValue) => {
-    setValues((old) => ({ ...old, [n]: v }));
-    setCheckReport(null);
-  };
-
-  const doExport = async (format: "stl" | "3mf") => {
-    if (!engine) return;
-    try {
-      const where = await engine.saveExport(designText, values, format, slug(name));
-      if (where) setStatus(`Exported ${where}`);
-    } catch (e) {
-      setStatus(`Export failed: ${e}`);
-    }
-  };
-
-  const doCheck = async () => {
-    if (!engine) return;
-    setStatus("Checking every size range...");
-    try {
-      const r = await engine.checkAll(designText, values);
-      setCheckReport(r);
-      setStatus(r.ok ? "All parameter ranges build correctly." : `${r.errors.length} problem(s) at some parameter values.`);
-    } catch (e) {
-      setStatus(String(e));
-    }
-  };
-
-  const doOpen = async () => {
-    if (!engine) return;
-    try {
-      const d = await engine.openFile();
-      if (d) load(d);
-    } catch (e) {
-      setStatus(`Could not open: ${e}`);
-    }
-  };
-
-  const issues = [...errors, ...warnings, ...(checkReport?.errors.filter((e) => e.when) ?? [])];
-
+  if (error) return <div className="splash error">Could not start the engine: {error}</div>;
+  if (!api) return <div className="splash">Starting…</div>;
   return (
-    <div className="app">
-      <header>
-        <div className="brand">ParametricDesign</div>
-        <button onClick={doOpen}>Open…</button>
-        <button onClick={() => setPasting(true)}>Paste JSON</button>
-        <button
-          onClick={async () => {
-            setPdPath(engine ? await engine.mcpServerPath() : null);
-            setConnecting(true);
-          }}
-        >
-          Connect AI
-        </button>
-        <select
-          value=""
-          onChange={(e) => {
-            const ex = EXAMPLES[Number(e.target.value)];
-            if (ex) load({ text: ex.text, params: {}, fileName: ex.name });
-          }}
-        >
-          <option value="">Examples…</option>
-          {EXAMPLES.map((ex, i) => (
-            <option key={ex.name} value={i}>
-              {ex.name}
-            </option>
-          ))}
-        </select>
-        <div className="spacer" />
-        <div className="seg" role="group" aria-label="Mode">
-          <button className={!advanced ? "on" : ""} onClick={() => setAdvanced(false)}>
-            Simple
-          </button>
-          <button className={advanced ? "on" : ""} onClick={() => setAdvanced(true)}>
-            Advanced
-          </button>
-        </div>
-        <label className="toggle">
-          <input type="checkbox" checked={exploded} onChange={(e) => setExploded(e.target.checked)} /> Exploded
-        </label>
-        <button onClick={doCheck} disabled={!report?.ok}>
-          Check all sizes
-        </button>
-        <button className="primary" onClick={() => doExport("3mf")} disabled={!report?.ok} title="Parts, colours and the editable design in one file">
-          Export 3MF
-        </button>
-        <button onClick={() => doExport("stl")} disabled={!report?.ok}>
-          STL
-        </button>
-      </header>
-      <main>
-        <section className="stage">
-          <Viewer meshes={meshes} exploded={exploded} designKey={designKey} />
-          <div className="title">
-            <h1>{name}</h1>
-            {busy && <span className="muted">updating…</span>}
-          </div>
-          {report && report.parts.length > 0 && (
-            <ul className="parts">
-              {report.parts.map((p) => (
-                <li key={p.id}>
-                  <span className="swatch" style={{ background: p.color }} />
-                  <b>{p.name ?? p.id}</b> {fmt(p.size[0])} × {fmt(p.size[1])} × {fmt(p.size[2])} mm
-                </li>
-              ))}
-            </ul>
-          )}
-          {(fatal || issues.length > 0) && (
-            <div className="issues">
-              {fatal && <div className="issue error">{fatal}</div>}
-              {issues.length > 0 && (
-                <button
-                  className="copy-fix"
-                  onClick={async () => {
-                    const lines = issues.map((i) => `- ${i.severity.toUpperCase()} at ${i.path || "(design)"}: ${i.message}${i.when ? ` (when ${i.when})` : ""}${i.hint ? `\n  fix: ${i.hint}` : ""}`);
-                    const msg = `ParametricDesign reports these problems with the design. Please fix all of them and send the complete corrected JSON:\n\n${lines.join("\n")}`;
-                    await navigator.clipboard.writeText(msg);
-                    setStatus("Copied a fix-it message: paste it into your LLM chat.");
-                  }}
-                >
-                  Copy fix-it message for your LLM
-                </button>
-              )}
-              {issues.slice(0, 8).map((i, k) => (
-                <div key={k} className={`issue ${i.severity}`}>
-                  <b>{i.severity === "error" ? "Error" : "Note"}</b> {i.message}
-                  {i.when && <em> (when {i.when})</em>}
-                  {i.hint && <div className="hint">{i.hint}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-        <aside>
-          <h2>Parameters</h2>
-          {report?.params.length ? (
-            <ParamPanel params={report.params} values={values} advanced={advanced} onChange={setParam} onReset={() => setValues({})} />
-          ) : (
-            <p className="muted">This design has no parameters.</p>
-          )}
-          {!advanced && hasAdvanced && (
-            <button className="link" onClick={() => setAdvanced(true)}>
-              Show tolerances and fine-tuning (Advanced)
-            </button>
-          )}
-        </aside>
-      </main>
-      <footer>
-        <span>{engine ? (engine.kind === "desktop" ? "Native engine" : "Browser engine (WebAssembly)") : "Starting engine…"}</span>
-        <span className="muted">{status}</span>
-      </footer>
-      {connecting && (
-        <div className="modal" onClick={() => setConnecting(false)}>
-          <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Connect an AI assistant</h2>
-            {pdPath ? (
-              <>
-                <p className="muted">
-                  The MCP server lets Claude (or any MCP client) check, preview and open designs in this app. Designs it opens appear here automatically.
-                </p>
-                <h3>Claude Code (run in a terminal)</h3>
-                <pre className="code">{`claude mcp add --scope user parametricdesign -- "${pdPath}" mcp`}</pre>
-                <h3>Claude Desktop (Settings → Developer → Edit Config)</h3>
-                <pre className="code">{JSON.stringify({ mcpServers: { parametricdesign: { command: pdPath, args: ["mcp"] } } }, null, 2)}</pre>
-                <p className="muted">Then ask for a design, e.g. “Design a snap-lid box for 10 SD cards and open it in ParametricDesign.”</p>
-              </>
-            ) : (
-              <p className="muted">
-                The MCP server (<code>pd</code>) was not found next to the app. It ships with the installed desktop app; in a browser, or in a development build, run <code>pd mcp</code> from a build of the
-                command line instead.
-              </p>
-            )}
-            <div className="row">
-              {pdPath && (
-                <button onClick={() => navigator.clipboard.writeText(`claude mcp add --scope user parametricdesign -- "${pdPath}" mcp`).then(() => setStatus("Copied the Claude Code command."))}>
-                  Copy Claude Code command
-                </button>
-              )}
-              <button className="primary" onClick={() => setConnecting(false)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {pasting && (
-        <div className="modal" onClick={() => setPasting(false)}>
-          <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Paste a design</h2>
-            <p className="muted">Paste the JSON your LLM wrote (pd/0.1 format). Errors are listed with fixes you can send back to it.</p>
-            <textarea value={paste} onChange={(e) => setPaste(e.target.value)} placeholder='{"format": "pd/0.1", ...}' autoFocus />
-            <div className="row">
-              <button onClick={() => setPasting(false)}>Cancel</button>
-              <button
-                className="primary"
-                onClick={() => {
-                  const m = paste.match(/```(?:json)?\s*([\s\S]*?)```/);
-                  load({ text: (m ? m[1] : paste).trim(), params: {}, fileName: "pasted design" });
-                  setPasting(false);
-                  setPaste("");
-                }}
-              >
-                Open
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <UiProvider>
+      <Shell api={api} />
+    </UiProvider>
   );
 }

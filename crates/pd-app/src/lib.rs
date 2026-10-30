@@ -112,7 +112,7 @@ pub fn export(
             let parts: Vec<&pd_core::BuiltPart> = m
                 .parts
                 .iter()
-                .filter(|p| part.map_or(true, |id| p.id == id))
+                .filter(|p| part.is_none_or(|id| p.id == id))
                 .collect();
             if parts.is_empty() {
                 return Err(format!("no part {}", part.unwrap_or("")));

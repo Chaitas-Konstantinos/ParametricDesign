@@ -59,10 +59,22 @@ fn export_to_file(
 /// The `pd` MCP server installed next to the app executable, if present.
 #[tauri::command]
 fn mcp_server_path() -> Option<String> {
-    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let exe = std::env::current_exe().ok()?;
     let name = if cfg!(windows) { "pd.exe" } else { "pd" };
-    let p = dir.join(name);
-    p.exists().then(|| p.to_string_lossy().into_owned())
+    let beside = exe.parent()?.join(name);
+    if beside.exists() {
+        return Some(beside.to_string_lossy().into_owned());
+    }
+    // development builds: use `cargo build --release -p pd-cli` from the repo
+    if cfg!(debug_assertions) {
+        for dir in exe.ancestors() {
+            let p = dir.join("target").join("release").join(name);
+            if p.exists() && dir.join("crates").join("pd-cli").exists() {
+                return Some(p.to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
 }
 
 // --- settings -----------------------------------------------------------------
