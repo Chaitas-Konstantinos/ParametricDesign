@@ -52,7 +52,7 @@ jobs:
         run: |
           mkdir -p src-tauri/binaries
           cp ../../target/release/pd.exe src-tauri/binaries/pd-x86_64-pc-windows-msvc.exe
-          npx tauri build --config '{"bundle":{"externalBin":["binaries/pd"]}}'
+          npx tauri build --config src-tauri/tauri.installer.conf.json
       - uses: actions/upload-artifact@v4
         with:
           name: parametricdesign-windows
