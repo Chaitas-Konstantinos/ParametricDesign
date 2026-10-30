@@ -1,0 +1,11 @@
+[package]
+name = "pd-core"
+description = "ParametricDesign core: design format, expressions, components, validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+manifold-rust.workspace = true
+serde.workspace = true
+serde_json.workspace = true
