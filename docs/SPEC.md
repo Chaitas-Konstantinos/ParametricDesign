@@ -319,11 +319,5 @@ Library and editor (after M1, from user feedback):
 - Settings: theme follows Windows with a switch, accent colour, text size, mm/inch,
   printer profiles (bed and nozzle feed the checks, the plate and 3MF layout).
 
-Not done yet / next:
-
-- **Run the evals against real models** (needs an API key) and tune the skills
-  until first-try ≥ 80 % and after-self-fix ≥ 95 %.
-- Windows installer is built by CI but not yet signed; `pd.exe` should ship inside
-  the installer with a "Connect to Claude Desktop" button (M2).
-- M2 items from the roadmap: dimension labels, full slicer 3MF metadata (per-object
-  filament slots, plates, print settings), OBJ/GLB, text component.
+Still to do: see [CHECKLIST.md](CHECKLIST.md), which lists everything that is open
+(and what is done) in the order we plan to tackle it.

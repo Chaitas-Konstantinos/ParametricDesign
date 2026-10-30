@@ -2,7 +2,7 @@
 
 Describe a design to any LLM using our skills, then open the result in a desktop app to view it in 3D, fine-tune its parameters and export STL / 3MF. A catalog website for community designs comes in a later milestone.
 
-Product and technical spec: [docs/SPEC.md](docs/SPEC.md).
+Product and technical spec: [docs/SPEC.md](docs/SPEC.md). What's done and what's next: [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
 ## What's here (milestone 1)
 
