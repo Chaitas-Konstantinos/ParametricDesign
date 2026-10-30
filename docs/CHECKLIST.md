@@ -59,16 +59,19 @@ Last updated: 30 October 2026 (Design with AI added).
 
 Run these in `apps\desktop`, where your terminal already is.
 
-- [ ] Remove the stray empty folder that the earlier command created:
+- [ ] Close the ParametricDesign app and Claude Code, then stop any running MCP
+  server: `Stop-Process -Name pd -Force -ErrorAction SilentlyContinue`
+- [ ] Get the latest code: `git pull`
+- [ ] Rebuild `pd.exe`, which has a new MCP tool: `cd ..\..`, then
+  `cargo build --release -p pd-cli`, then `cd apps\desktop`.
+- [ ] Rebuild the browser engine the interface is built against: `npm run wasm`
+  (without it the installer build stops with type errors).
+- [ ] Remove the stray empty folder that an earlier command created:
   `Remove-Item -Recurse -Force .\apps`
 - [ ] Create the folder for the bundled `pd.exe`:
   `New-Item -ItemType Directory -Force src-tauri\binaries`
 - [ ] Copy the new `pd.exe` in:
   `Copy-Item ..\..\target\release\pd.exe src-tauri\binaries\pd-x86_64-pc-windows-msvc.exe`
-  (if it says the file doesn't exist, run `cargo build --release -p pd-cli` in the
-  top folder first).
-- [ ] Close the ParametricDesign app and Claude Code, then stop any running MCP
-  server: `Stop-Process -Name pd -Force -ErrorAction SilentlyContinue`
 - [ ] Build the installers: `npx tauri build --config src-tauri/tauri.installer.conf.json`
   (if it stops with error 4551, run it again).
 - [ ] Install with the **MSI**, not the setup `.exe`:
@@ -78,7 +81,7 @@ Run these in `apps\desktop`, where your terminal already is.
   only, under `%LOCALAPPDATA%`, and Claude would keep using the old `pd.exe`.
 - [ ] Check that Settings → Apps lists one ParametricDesign, version 0.2.0.
 - [ ] In Claude Code, run `/mcp` and reconnect `parametricdesign`: it should show
-  8 tools (`get_open_design` is the new one).
+  9 tools (`get_open_design` and `get_design_request` are the new ones).
 - [ ] First start: choose the library folder (`Documents\ParametricDesign Library`,
   or a OneDrive folder), your printer, and keep "Add 5 example designs".
 - [ ] Bring in the designs Claude sent to 0.1.0: **New design → Import…**, from
