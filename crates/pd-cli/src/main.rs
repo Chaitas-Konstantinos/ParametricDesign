@@ -18,8 +18,10 @@ USAGE:
   pd measure  <design.pd.json> [--query '{\"type\":\"distance\",\"a\":\"box\",\"b\":\"lid\"}']... [--set name=value]...
   pd docs components               Markdown reference of every component and joint
   pd skills list                   Skills in the catalog
-  pd skills export <id> [-o dir]   One skill as a folder
-  pd skills bundle [--with a,b] [--brief text | --brief-file f] [--photo img]... [-o dir] [--prompt]
+  pd skills export <id> [-o dir|file.zip]
+                                   One skill as a folder (or a .zip)
+  pd skills bundle [--with a,b] [--title name] [--brief text | --brief-file f] [--photo img]...
+                   [-o dir|file.zip] [--prompt]
                                    Core skills + chosen optional skills merged into one tailored skill
   pd mcp                           Run the MCP server on stdio (for Claude Desktop, Cursor, LM Studio, ...)
 
@@ -45,6 +47,7 @@ impl Args {
             "--with",
             "--brief",
             "--brief-file",
+            "--title",
             "--photo",
             "--skills-dir",
         ];
@@ -329,6 +332,10 @@ fn main() -> ExitCode {
     }
 }
 
+fn is_zip(p: &Path) -> bool {
+    p.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+}
+
 fn skills(args: &Args) -> ExitCode {
     let catalog = match pd_skills::Catalog::load(args.get("--skills-dir").map(Path::new)) {
         Ok(c) => c,
@@ -354,7 +361,14 @@ fn skills(args: &Args) -> ExitCode {
                 .get("-o")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(id));
-            match catalog.export_one(id, &out) {
+            let written = if is_zip(&out) {
+                catalog
+                    .skill_zip(id)
+                    .and_then(|z| std::fs::write(&out, z).map_err(|e| e.to_string()))
+            } else {
+                catalog.export_one(id, &out)
+            };
+            match written {
                 Ok(()) => {
                     println!("wrote {}", out.display());
                     ExitCode::SUCCESS
@@ -380,11 +394,23 @@ fn skills(args: &Args) -> ExitCode {
                 },
                 _ => None,
             };
-            let photos: Vec<PathBuf> = args.all("--photo").iter().map(PathBuf::from).collect();
+            let mut photos = vec![];
+            for p in args.all("--photo") {
+                match std::fs::read(p) {
+                    Ok(bytes) => photos.push(pd_skills::Photo {
+                        name: p.to_string(),
+                        caption: None,
+                        bytes,
+                    }),
+                    Err(e) => return fail(format!("cannot read {p}: {e}")),
+                }
+            }
             let req = pd_skills::BundleRequest {
                 optional: with,
+                title: args.get("--title").map(String::from),
                 brief,
                 photos,
+                printer: None,
             };
             if args.has("--prompt") {
                 match catalog.prompt(&req) {
@@ -399,9 +425,21 @@ fn skills(args: &Args) -> ExitCode {
                     .get("-o")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("parametric-design-skill"));
-                match catalog.bundle(&req, &out) {
+                let written = if is_zip(&out) {
+                    catalog.bundle_zip(&req).and_then(|(name, z)| {
+                        std::fs::write(&out, z).map_err(|e| e.to_string())?;
+                        Ok(name)
+                    })
+                } else {
+                    catalog.bundle(&req, &out)
+                };
+                match written {
                     Ok(name) => {
                         println!("wrote tailored skill \"{name}\" to {}", out.display());
+                        println!(
+                            "\nOnce it is installed, start a chat with:\n{}",
+                            pd_skills::skill_starter(&name, &req)
+                        );
                         ExitCode::SUCCESS
                     }
                     Err(e) => fail(e),

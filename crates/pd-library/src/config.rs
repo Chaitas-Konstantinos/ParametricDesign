@@ -1,7 +1,7 @@
 //! Per-computer configuration shared by the desktop app and the `pd` MCP
-//! server: settings, the inbox where Claude drops designs, and the design
-//! currently open in the app. `PD_HOME` overrides the folder (tests, portable
-//! installs).
+//! server: settings, the inbox where Claude drops designs, the design
+//! currently open in the app and the design requests prepared for Claude.
+//! `PD_HOME` overrides the folder (tests, portable installs).
 
 use serde_json::{json, Value as Json};
 use std::path::PathBuf;
@@ -58,6 +58,10 @@ pub fn inbox_dir() -> PathBuf {
 
 pub fn current_path() -> PathBuf {
     config_dir().join("current.json")
+}
+
+pub fn requests_dir() -> PathBuf {
+    config_dir().join("requests")
 }
 
 /// Settings as a JSON object (empty object when there are none yet).
@@ -124,4 +128,78 @@ pub fn read_current() -> Option<Json> {
 
 pub fn write_current(state: &Json) -> Result<(), String> {
     crate::write_json(&current_path(), state)
+}
+
+/// How many design requests are kept (the newest ones).
+const KEEP_REQUESTS: usize = 20;
+
+fn request_folders() -> Vec<(u64, PathBuf)> {
+    let mut dirs: Vec<(u64, PathBuf)> = std::fs::read_dir(requests_dir())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            let stamp = p.file_name()?.to_str()?.split('-').next()?.parse().ok()?;
+            p.is_dir().then_some((stamp, p))
+        })
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+/// Save a design request the user prepared for Claude in the app:
+/// `{"title", "brief", "optional": [skill ids], "printer", "photos": [{"name",
+/// "caption", "data"}]}`, photo data as base64 or data URLs. The photos are
+/// written next to `request.json`. Returns the request's folder.
+pub fn write_request(request: &Json) -> Result<PathBuf, String> {
+    let title = request
+        .get("title")
+        .and_then(|t| t.as_str())
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or("request");
+    let created = crate::now_ms();
+    let folder = requests_dir().join(format!("{created}-{}", crate::slug(title)));
+    let mut photos = vec![];
+    for (i, p) in request
+        .get("photos")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let data = p
+            .get("data")
+            .and_then(|d| d.as_str())
+            .ok_or_else(|| format!("photo {} has no data", i + 1))?;
+        let ext = match data.split_once(";base64,").map(|(m, _)| m) {
+            Some("data:image/png") => "png",
+            Some("data:image/webp") => "webp",
+            Some("data:image/gif") => "gif",
+            _ => "jpg",
+        };
+        let file = format!("photo-{}.{ext}", i + 1);
+        crate::write_bytes(&folder.join(&file), &crate::unbase64(data)?)?;
+        photos.push(
+            json!({"file": file, "caption": p.get("caption").cloned().unwrap_or(Json::Null)}),
+        );
+    }
+    let mut saved = request.clone();
+    saved["photos"] = json!(photos);
+    saved["created"] = json!(created);
+    crate::write_json(&folder.join("request.json"), &saved)?;
+    let all = request_folders();
+    for (_, old) in all.iter().take(all.len().saturating_sub(KEEP_REQUESTS)) {
+        let _ = std::fs::remove_dir_all(old);
+    }
+    Ok(folder)
+}
+
+/// The newest design request: its folder (with the photos) and `request.json`.
+pub fn latest_request() -> Option<(PathBuf, Json)> {
+    let (_, dir) = request_folders().pop()?;
+    let req = std::fs::read_to_string(dir.join("request.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())?;
+    Some((dir, req))
 }

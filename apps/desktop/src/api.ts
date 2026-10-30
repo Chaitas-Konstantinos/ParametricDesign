@@ -153,6 +153,40 @@ export interface CurrentState {
   design?: unknown;
 }
 
+export interface SkillInfo {
+  id: string;
+  title: string;
+  core: boolean;
+  /** Skills in one group are alternatives (pick one connector type). */
+  group?: string | null;
+  requires: string[];
+  summary: string;
+}
+
+export interface RequestPhoto {
+  /** File name as the user added it. */
+  name: string;
+  caption: string;
+  /** Downscaled image as a data URL. */
+  dataUrl: string;
+}
+
+/** A design request: what to design, for which printer, with which skills. */
+export interface DesignRequest {
+  title: string;
+  brief: string;
+  optional: string[];
+  photos: RequestPhoto[];
+  printer?: { name: string; bed: number[]; nozzle: number } | null;
+}
+
+export interface PromptExport {
+  prompt: string;
+  fileName: string;
+  /** What to send when the prompt goes into the chat as a file. */
+  starter: string;
+}
+
 export interface Api {
   kind: "desktop" | "browser";
   evaluate(design: string, params: Params, opts: EvalOpts): Promise<Evaluation>;
@@ -186,6 +220,28 @@ export interface Api {
   /** Asks for .pd.json / .3mf files and adds them; resolves to the new ids. */
   importFiles(): Promise<string[]>;
   addExamples(): Promise<number>;
+
+  skillsCatalog(): Promise<SkillInfo[]>;
+  /** Asks where to save the tailored skill (.zip); null if cancelled. */
+  exportSkillBundle(req: DesignRequest): Promise<{ name: string; fileName: string; starter: string; path: string } | null>;
+  /** Asks where to save one skill (.zip); resolves to the path, or null if cancelled. */
+  exportSkill(id: string): Promise<string | null>;
+  skillsPrompt(req: DesignRequest): Promise<PromptExport>;
+  /** Asks where to save the prompt (.md); null if cancelled. */
+  savePrompt(req: DesignRequest): Promise<(PromptExport & { path: string }) | null>;
+  /** Hands the request to Claude through the MCP server (desktop app only). */
+  sendRequest(req: DesignRequest): Promise<void>;
+}
+
+/** The request as the engine reads it (photos as data URLs). */
+function requestJson(r: DesignRequest): string {
+  return JSON.stringify({
+    title: r.title,
+    brief: r.brief,
+    optional: r.optional,
+    printer: r.printer ?? null,
+    photos: r.photos.map((p) => ({ name: p.name, caption: p.caption, data: p.dataUrl })),
+  });
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -248,6 +304,31 @@ async function desktopApi(): Promise<Api> {
       return ids;
     },
     addExamples: () => invoke("library_add_examples"),
+    skillsCatalog: () => invoke("skills_catalog"),
+    async exportSkillBundle(req) {
+      const request = requestJson(req);
+      const suggested = (await invoke<{ fileName: string }>("skills_prompt", { request })).fileName.replace(/\.md$/, ".zip");
+      const path = await dialog.save({ defaultPath: suggested, filters: [{ name: "Skill", extensions: ["zip"] }] });
+      if (!path) return null;
+      const info = await invoke<{ name: string; fileName: string; starter: string }>("skills_export_bundle", { request, path });
+      return { ...info, path };
+    },
+    async exportSkill(id) {
+      const path = await dialog.save({ defaultPath: `${id}.zip`, filters: [{ name: "Skill", extensions: ["zip"] }] });
+      if (!path) return null;
+      await invoke("skills_export_one", { id, path });
+      return path;
+    },
+    skillsPrompt: (req) => invoke("skills_prompt", { request: requestJson(req) }),
+    async savePrompt(req) {
+      const request = requestJson(req);
+      const suggested = (await invoke<PromptExport>("skills_prompt", { request })).fileName;
+      const path = await dialog.save({ defaultPath: suggested, filters: [{ name: "Markdown", extensions: ["md"] }] });
+      if (!path) return null;
+      const info = await invoke<PromptExport>("skills_save_prompt", { request, path });
+      return { ...info, path };
+    },
+    sendRequest: (req) => invoke("send_design_request", { request: JSON.parse(requestJson(req)) }),
   };
 }
 
@@ -466,6 +547,26 @@ async function browserApi(): Promise<Api> {
     async addExamples() {
       for (const e of EXAMPLES) create(e.text, {}, "example", "Example design");
       return EXAMPLES.length;
+    },
+    skillsCatalog: async () => JSON.parse(wasm.skills_catalog()),
+    async exportSkillBundle(req) {
+      const request = requestJson(req);
+      const info = JSON.parse(wasm.skills_bundle_info(request));
+      download(wasm.skills_bundle_zip(request), info.fileName);
+      return { ...info, path: info.fileName };
+    },
+    async exportSkill(id) {
+      download(wasm.skill_zip(id), `${id}.zip`);
+      return `${id}.zip`;
+    },
+    skillsPrompt: async (req) => JSON.parse(wasm.skills_prompt(requestJson(req), undefined)),
+    async savePrompt(req) {
+      const info: PromptExport = JSON.parse(wasm.skills_prompt(requestJson(req), undefined));
+      download(new TextEncoder().encode(info.prompt), info.fileName);
+      return { ...info, path: info.fileName };
+    },
+    async sendRequest() {
+      throw new Error("Sending a request to Claude needs the desktop app.");
     },
   };
 }

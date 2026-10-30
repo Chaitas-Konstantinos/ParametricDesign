@@ -42,6 +42,9 @@ const PATHS: Record<string, string> = {
   edit: "M4 20h4L19 9l-4-4L4 16z M14 6l4 4",
   sun: "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z M12 2v2 M12 20v2 M2 12h2 M20 12h2 M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4",
   keyboard: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10",
+  image: "M4 5h16v14H4z M4 16l4.5-4.5 3.5 3.5 3-3 5 5 M15.5 8a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3z",
+  lock: "M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3",
+  send: "M4 11.5L20 4l-7.5 16-2.3-6.2z M10.2 13.8L20 4",
   printer: "M6 9V3h12v6 M6 18H4v-9h16v9h-2 M8 14h8v7H8z",
 };
 

@@ -9,4 +9,4 @@ license.workspace = true
 pd-core.workspace = true
 manifold-rust.workspace = true
 serde_json.workspace = true
-zip = { version = "9.1.3", default-features = false, features = ["deflate"] }
+zip.workspace = true

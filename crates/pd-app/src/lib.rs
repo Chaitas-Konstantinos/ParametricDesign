@@ -3,6 +3,10 @@
 //!
 //! `opts` is a JSON object: `{"printer": {"bed": [x, y, z], "nozzle": 0.4}}`;
 //! the user's printer overrides the design's own print hints.
+//!
+//! Skill requests are JSON too: `{"optional": [skill ids], "title", "brief",
+//! "printer": {"name", "bed", "nozzle"}, "photos": [{"name", "caption", "data"}]}`
+//! with photo data as base64 or data URLs.
 
 pub use pd_core::validate::Report;
 use pd_core::validate::{validate, Printer, ValidateOptions};
@@ -170,6 +174,54 @@ pub fn measure(design: &str, params: &str, opts: &str, queries: &str) -> Result<
     Ok(Json::Array(pd_core::measure::measure(&m, &q)))
 }
 
+// --- skills --------------------------------------------------------------------
+
+/// The skill catalog: `[{id, title, core, group, requires, summary}]`.
+pub fn skills_catalog() -> Result<Json, String> {
+    let c = pd_skills::Catalog::load(None)?;
+    Ok(serde_json::to_value(&c.skills).unwrap())
+}
+
+fn bundle_request(request: &str) -> Result<pd_skills::BundleRequest, String> {
+    let v: Json = serde_json::from_str(request).map_err(|e| format!("bad request: {e}"))?;
+    pd_skills::BundleRequest::from_json(&v)
+}
+
+/// The tailored skill as a .zip, with `{name, fileName, starter}`: the starter
+/// is what to paste into a chat once the skill is installed.
+pub fn skills_bundle(request: &str) -> Result<(Json, Vec<u8>), String> {
+    let req = bundle_request(request)?;
+    let (name, zip) = pd_skills::Catalog::load(None)?.bundle_zip(&req)?;
+    let info = json!({
+        "name": name,
+        "fileName": format!("{name}.zip"),
+        "starter": pd_skills::skill_starter(&name, &req),
+    });
+    Ok((info, zip))
+}
+
+/// One skill as a .zip.
+pub fn skill_zip(id: &str) -> Result<Vec<u8>, String> {
+    pd_skills::Catalog::load(None)?.skill_zip(id)
+}
+
+/// Everything as one prompt: `{prompt, fileName, starter}`. The starter is what
+/// to send when the prompt goes into the chat as a file (`file_name` if the
+/// user picked another name).
+pub fn skills_prompt(request: &str, file_name: Option<&str>) -> Result<Json, String> {
+    let req = bundle_request(request)?;
+    let c = pd_skills::Catalog::load(None)?;
+    let file = match file_name {
+        Some(f) => f.to_string(),
+        None => format!("{}.md", c.bundle_name(&req)?),
+    };
+    Ok(json!({
+        "prompt": c.prompt(&req)?,
+        "starter": pd_skills::prompt_starter(&file, &req),
+        "fileName": file,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +261,20 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.code == "too_big_for_bed"));
+    }
+
+    #[test]
+    fn skills_api() {
+        let cat = skills_catalog().unwrap();
+        assert!(cat.as_array().unwrap().iter().any(|s| s["core"] == true));
+        let req = r#"{"optional": ["connector-pin"], "title": "Long tray", "brief": "Two pieces", "photos": []}"#;
+        let (info, zip) = skills_bundle(req).unwrap();
+        assert_eq!(info["fileName"], "parametric-design-long-tray.zip");
+        assert!(zip.starts_with(b"PK"));
+        let p = skills_prompt(req, Some("tray.md")).unwrap();
+        assert!(p["prompt"].as_str().unwrap().contains("Long tray"));
+        assert!(p["starter"].as_str().unwrap().contains("tray.md"));
+        assert!(skills_bundle(r#"{"optional": ["connector-pin", "connector-magnet"]}"#).is_err());
+        assert!(skill_zip("multi-part").unwrap().starts_with(b"PK"));
     }
 }

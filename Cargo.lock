@@ -250,6 +250,7 @@ dependencies = [
  "pd-core",
  "pd-export",
  "pd-render",
+ "pd-skills",
  "serde",
  "serde_json",
 ]
@@ -321,6 +322,7 @@ dependencies = [
  "pd-core",
  "serde",
  "serde_json",
+ "zip",
 ]
 
 [[package]]

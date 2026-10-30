@@ -78,7 +78,7 @@ export function SettingsScreen({ welcome, back }: { welcome?: boolean; back?: Ro
           <>
             <button type="button" className="btn ghost" onClick={() => void finish()}>
               <Icon name="back" />
-              {back?.name === "editor" ? "Back to the design" : "Library"}
+              {back?.name === "editor" ? "Back to the design" : back?.name === "ask" ? "Design with AI" : "Library"}
             </button>
             <h1 className="h-inline">Settings</h1>
           </>

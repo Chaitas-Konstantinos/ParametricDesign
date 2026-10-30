@@ -8,17 +8,18 @@ Everything we have decided since the kickoff, as one list: what is still to do, 
 - **You:** marks things only you can do: a decision, a purchase, an account, or
   testing on your PC. Claude can build everything else.
 
-Last updated: 30 October 2026.
+Last updated: 30 October 2026 (Design with AI added).
 
 ## Where things stand
 
 - The repository is private. All code is on the branch `claude/dreamy-keller-sr1jue`,
   which is its only branch and also its default; there is no `main` branch and there
   are no pull requests yet.
-- CI is green on the latest commit (desktop app 0.2.0): engine tests, the
-  WebAssembly build and the Windows installer all pass.
-- Your PC still runs 0.1.0, installed from the MSI. 0.2.0 (library, editor, compare)
-  is built but not installed yet.
+- CI is green. Every push runs the engine tests, the WebAssembly build and an
+  interface type check on Linux (a few minutes). The Windows installer is built
+  only when you start it by hand: Actions → Windows installer → Run workflow.
+- Your PC still runs 0.1.0, installed from the MSI. 0.2.0 (library, editor, compare,
+  Design with AI) is not installed yet.
 - 0.2.0 has been tested on Linux (all tests, a full click-through in the browser
   version, a short run of the desktop app). **Nothing has been tested on Windows yet.**
 
@@ -144,6 +145,19 @@ Send screenshots of anything wrong, slow or confusing.
 - [ ] A design Claude sends while the app is closed appears at the next start.
 - [ ] Claude's checks use your printer's bed size.
 
+**Design with AI**
+- [ ] New design → Design with AI: describe something, add photos (choose, drop or
+  paste with Ctrl+V), add a caption to each.
+- [ ] Ticking a connector also ticks Multi-part models; picking another connector
+  replaces the first; unticking it removes Multi-part models again.
+- [ ] Send to Claude: the message is copied; paste it into Claude Code. Claude calls
+  `get_design_request`, sees your photos, and the design arrives in the library.
+- [ ] Export tailored skill: upload the `.zip` in Claude.ai (Settings → Capabilities
+  → Skills), start a chat with your photos and the starter message.
+- [ ] Copy prompt and Save as file: try them in ChatGPT or Gemini, then add the
+  answer with New design → Paste JSON.
+- [ ] The download button on a skill saves that skill on its own.
+
 **OneDrive** (only if your library is there)
 - [ ] The same library on two PCs: changes made on one show up on the other.
 - [ ] Changing the same design on both at once keeps both as versions and loses
@@ -247,10 +261,7 @@ the app. It must cover `parametricdesign.exe`, `pd.exe`, the MSI and the setup
   exist.
 - [ ] When the repository goes public: contributing guide, security policy and
   issue templates.
-- [ ] CI: build the Windows installer only on `main`, on release tags or on demand.
-  Today every push runs it (about 8 minutes), and because the repository is
-  private, Windows minutes count double against GitHub's free monthly allowance.
-- [ ] CI: add Clippy and an interface type check to the Linux job.
+- [ ] CI: add Clippy to the Linux job.
 - [ ] Add the end-to-end test that clicks through the app in a browser to the
   repository, and run it in CI. Today it exists only in a temporary cloud folder
   and will be lost.
@@ -278,10 +289,6 @@ The product depends on LLMs getting designs right with little back-and-forth.
 
 ## 9. Skills
 
-- [ ] Skill picker in the app. Core skills are always on, and you tick the optional
-  ones. You add a description and photos, then export one tailored skill (`.zip`)
-  plus a ready-to-paste first message. Single skills can be exported too. Today this
-  exists only in the command line (`pd skills bundle`).
 - [ ] New optional skills from the spec: hinge, threads, text and labels,
   multicolour, Gridfinity.
 - [ ] Community-contributed skills (milestone 5).
@@ -421,9 +428,9 @@ Not planned; kept here so nothing is lost.
   so the file reopens editable.
 - [x] Preview images rendered without a screen, so LLMs can see their design.
 - [x] The `pd` command line.
-- [x] MCP server with 8 tools: `validate_design`, `render_preview`, `measure`,
-  `get_open_design`, `open_in_app`, `export_design`, `list_components`,
-  `get_design_guide`.
+- [x] MCP server with 9 tools: `validate_design`, `render_preview`, `measure`,
+  `get_open_design`, `get_design_request`, `open_in_app`, `export_design`,
+  `list_components`, `get_design_guide`.
 - [x] 10 skills: 3 core (core-parametric, printability, from-photos) and 7 optional
   (multi-part, snap-fit, dovetail, pin, magnet and screw connectors,
   electronics enclosure). They bundle into one tailored skill or one prompt from
@@ -457,3 +464,19 @@ Not planned; kept here so nothing is lost.
   colour, text size, mm or inches, Claude setup commands.
 - [x] Windows build fixes: the interface dev server no longer watches the Rust build
   folder; `npx tauri dev --release` works around Smart App Control; version 0.2.0.
+
+**Design with AI (skill picker)**
+- [x] New design → Design with AI: name, description, photos (choose, drop or
+  paste; scaled down to 1568 px; captions; copy a photo to paste it into a chat)
+  and your printer.
+- [x] Skills: core skills always included; optional ones ticked, with their
+  requirements added and removed automatically and one connector at a time;
+  every skill can be exported on its own (`.zip`).
+- [x] Three ways out: Send to Claude (the MCP tool `get_design_request` gives
+  Claude the brief, the photos as images, the printer and the skills to load);
+  one tailored skill as a `.zip` with a starter message; one prompt to copy or
+  save, with a starter message for the file.
+- [x] The skills are embedded without a build script, so the app gained nothing
+  for Smart App Control to block. The command line exports `.zip` files too.
+- [x] CI: the Windows installer is built only on demand; the Linux job also
+  type-checks and builds the interface, and a newer push cancels an older run.

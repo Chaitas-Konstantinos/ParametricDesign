@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "ParametricDesign", "width": 1400, "height": 900, "minWidth": 900, "minHeight": 600 }],
+    "windows": [{ "title": "ParametricDesign", "width": 1400, "height": 900, "minWidth": 900, "minHeight": 600, "dragDropEnabled": false }],
     "security": { "csp": null }
   },
   "bundle": {

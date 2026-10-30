@@ -281,6 +281,49 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .shortcut { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); }
 kbd { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel2); font-size: 0.82rem; color: var(--muted); }
 
+/* --- design with AI ------------------------------------------------------------------------------ */
+.ask { flex: 1 1 auto; overflow-y: auto; width: 100%; max-width: 1240px; margin: 0 auto; padding: 26px 24px 48px; display: flex; flex-direction: column; gap: 20px; }
+/* wide: description and sending on the left, skills on the right; narrow: 1, 2, 3 */
+.ask-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "what skills" "send skills"; gap: 20px; align-items: start; }
+.ask-what { grid-area: what; }
+.ask-skills { grid-area: skills; }
+.ask-send { grid-area: send; }
+textarea.prose { height: 170px; font-family: inherit; font-size: 0.95rem; line-height: 1.5; }
+.photo-drop { display: flex; align-items: center; gap: 14px; padding: 16px; border: 2px dashed var(--border); border-radius: 12px; background: var(--panel2); color: var(--muted); }
+.photo-drop > svg { flex: none; }
+.photo-drop.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.photo-drop .link { padding: 0; }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.photo-tile { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.photo-img { position: relative; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--panel2); }
+.photo-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-num { position: absolute; left: 6px; top: 6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: rgba(0,0,0,.62); color: #fff; font-size: 0.75rem; font-weight: 700; display: grid; place-items: center; }
+.photo-actions { position: absolute; right: 6px; top: 6px; display: flex; gap: 4px; }
+.photo-actions .icon-btn { background: rgba(0,0,0,.55); border-color: transparent; color: #fff; }
+.photo-actions .icon-btn:hover:not(:disabled) { background: rgba(0,0,0,.75); color: #fff; }
+.photo-tile input { height: 34px; font-size: 0.85rem; }
+.skill-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel2); }
+.skill-row.on { border-color: var(--accent-border); background: var(--accent-soft); }
+.skill-row.core { background: transparent; }
+.skill-check { flex: none; margin-top: 3px; }
+span.skill-check { width: 18px; display: grid; place-items: center; color: var(--muted); }
+.skill-text { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.skill-row.core .skill-text { cursor: default; }
+.skill-notes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.skill-notes > span { padding: 1px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); color: var(--muted); }
+.send-grid { display: flex; flex-direction: column; gap: 12px; }
+.skill-group { margin: 4px 0 -4px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.send-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2); }
+.send-card.recommended { border-color: var(--accent-border); }
+.send-head { display: flex; align-items: center; gap: 8px; width: 100%; }
+.send-head h3 { font-size: 1rem; flex: 1; }
+.send-result { width: 100%; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.copy-box { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; }
+.copy-box .code { width: 100%; background: var(--panel); word-break: normal; overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .ask-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "what" "skills" "send"; }
+}
+
 @media (max-width: 1100px) {
   .panel.left { display: none; }
   .panel.right { width: 330px; }

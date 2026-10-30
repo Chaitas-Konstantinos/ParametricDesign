@@ -303,24 +303,7 @@ export function LibraryScreen() {
     void go({ name: "editor", id });
   };
 
-  const askClaude = () =>
-    ui.dialog({
-      title: "Design with Claude",
-      body: (
-        <div className="stack">
-          <p>With ParametricDesign connected to Claude (Settings → Claude), just ask in Claude Code or Claude Desktop, for example:</p>
-          <blockquote>“Design a wall hook for a backpack with two countersunk screws and send it to ParametricDesign.”</blockquote>
-          <p>Claude checks and previews the design itself, then it appears here marked <b>New from Claude</b>.</p>
-          <p>To change a design, open it here and ask “make it 20 mm taller”: you get a side-by-side compare and decide whether to accept it.</p>
-        </div>
-      ),
-      actions: [
-        { label: "Claude setup", value: "settings" },
-        { label: "Got it", value: "ok", kind: "primary" },
-      ],
-    }).then((r) => {
-      if (r?.action === "settings") void go({ name: "settings", back: { name: "library" } });
-    });
+  const designWithAI = () => void go({ name: "ask" });
 
   const navItems: { v: View; label: string; icon: string; count: number }[] = [
     { v: { kind: "all" }, label: "All designs", icon: "layers", count: live.length },
@@ -362,7 +345,7 @@ export function LibraryScreen() {
             </>
           }
           items={[
-            { label: "Ask Claude to design it…", icon: "sparkle", run: askClaude },
+            { label: "Design with AI…", icon: "sparkle", run: designWithAI },
             { label: "Paste JSON…", icon: "paste", run: pasteDesign },
             {
               label: "Import .pd.json / .3mf…",
@@ -512,10 +495,10 @@ export function LibraryScreen() {
               {live.length === 0 && view.kind === "all" ? (
                 <>
                   <h2>Your library is empty</h2>
-                  <p className="muted">Ask Claude for a design, paste one, or start from the examples.</p>
+                  <p className="muted">Describe a design for your AI, paste one, or start from the examples.</p>
                   <div className="row">
-                    <button type="button" className="btn" onClick={askClaude}>
-                      <Icon name="sparkle" size={18} /> Ask Claude
+                    <button type="button" className="btn" onClick={designWithAI}>
+                      <Icon name="sparkle" size={18} /> Design with AI
                     </button>
                     <button
                       type="button"

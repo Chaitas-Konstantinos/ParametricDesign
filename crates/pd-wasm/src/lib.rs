@@ -41,3 +41,41 @@ pub fn import_3mf(bytes: &[u8]) -> Result<String, JsValue> {
         .map(|j| j.to_string())
         .map_err(js_err)
 }
+
+/// JSON `[{id, title, core, group, requires, summary}]`.
+#[wasm_bindgen]
+pub fn skills_catalog() -> Result<String, JsValue> {
+    pd_app::skills_catalog()
+        .map(|j| j.to_string())
+        .map_err(js_err)
+}
+
+/// JSON `{name, fileName, starter}` for the tailored skill of a request.
+#[wasm_bindgen]
+pub fn skills_bundle_info(request: &str) -> Result<String, JsValue> {
+    pd_app::skills_bundle(request)
+        .map(|(info, _)| info.to_string())
+        .map_err(js_err)
+}
+
+/// The tailored skill as .zip bytes.
+#[wasm_bindgen]
+pub fn skills_bundle_zip(request: &str) -> Result<Vec<u8>, JsValue> {
+    pd_app::skills_bundle(request)
+        .map(|(_, zip)| zip)
+        .map_err(js_err)
+}
+
+/// One skill as .zip bytes.
+#[wasm_bindgen]
+pub fn skill_zip(id: &str) -> Result<Vec<u8>, JsValue> {
+    pd_app::skill_zip(id).map_err(js_err)
+}
+
+/// JSON `{prompt, fileName, starter}`.
+#[wasm_bindgen]
+pub fn skills_prompt(request: &str, file_name: Option<String>) -> Result<String, JsValue> {
+    pd_app::skills_prompt(request, file_name.as_deref())
+        .map(|j| j.to_string())
+        .map_err(js_err)
+}

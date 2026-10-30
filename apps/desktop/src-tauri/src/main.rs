@@ -56,6 +56,51 @@ fn export_to_file(
     std::fs::write(&path, bytes).map_err(|e| format!("cannot write {path}: {e}"))
 }
 
+// --- skills and requests for Claude ----------------------------------------------
+
+#[tauri::command(async)]
+fn skills_catalog() -> R<Json> {
+    pd_app::skills_catalog()
+}
+
+/// Writes the tailored skill (.zip); returns `{name, fileName, starter}`.
+#[tauri::command(async)]
+fn skills_export_bundle(request: String, path: String) -> R<Json> {
+    let (info, zip) = pd_app::skills_bundle(&request)?;
+    std::fs::write(&path, zip).map_err(|e| format!("cannot write {path}: {e}"))?;
+    Ok(info)
+}
+
+#[tauri::command(async)]
+fn skills_export_one(id: String, path: String) -> R<()> {
+    let zip = pd_app::skill_zip(&id)?;
+    std::fs::write(&path, zip).map_err(|e| format!("cannot write {path}: {e}"))
+}
+
+/// `{prompt, fileName, starter}`.
+#[tauri::command(async)]
+fn skills_prompt(request: String) -> R<Json> {
+    pd_app::skills_prompt(&request, None)
+}
+
+/// Writes the one-prompt file; returns `{prompt, fileName, starter}` for that file name.
+#[tauri::command(async)]
+fn skills_save_prompt(request: String, path: String) -> R<Json> {
+    let name = Path::new(&path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned());
+    let info = pd_app::skills_prompt(&request, name.as_deref())?;
+    std::fs::write(&path, info["prompt"].as_str().unwrap_or_default())
+        .map_err(|e| format!("cannot write {path}: {e}"))?;
+    Ok(info)
+}
+
+/// Hands a design request to Claude: the MCP server's `get_design_request` reads it.
+#[tauri::command(async)]
+fn send_design_request(request: Json) -> R<()> {
+    config::write_request(&request).map(|_| ())
+}
+
 /// The `pd` MCP server installed next to the app executable, if present.
 #[tauri::command]
 fn mcp_server_path() -> Option<String> {
@@ -320,7 +365,13 @@ fn main() {
             library_collections,
             library_set_collections,
             library_import_file,
-            library_add_examples
+            library_add_examples,
+            skills_catalog,
+            skills_export_bundle,
+            skills_export_one,
+            skills_prompt,
+            skills_save_prompt,
+            send_design_request
         ])
         .run(tauri::generate_context!())
         .expect("error while running ParametricDesign");

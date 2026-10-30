@@ -318,6 +318,12 @@ Library and editor (after M1, from user feedback):
   library as "New from Claude".
 - Settings: theme follows Windows with a switch, accent colour, text size, mm/inch,
   printer profiles (bed and nozzle feed the checks, the plate and 3MF layout).
+- Design with AI (the skill picker from §7): name, description, photos with
+  captions and the user's printer; core skills locked on, optional skills ticked
+  (requirements follow, one per group). Out: send to Claude over MCP
+  (`get_design_request` returns the brief and the photos as images), one tailored
+  skill as a `.zip` plus a starter message, or one prompt to copy or save. Every
+  skill can be exported on its own.
 
 Still to do: see [CHECKLIST.md](CHECKLIST.md), which lists everything that is open
 (and what is done) in the order we plan to tackle it.

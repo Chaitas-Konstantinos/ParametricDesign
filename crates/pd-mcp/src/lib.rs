@@ -13,12 +13,14 @@ use std::path::PathBuf;
 const PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCTIONS: &str = "ParametricDesign turns pd/0.1 JSON designs into printable 3D models. \
-Workflow: (1) if you have not loaded the ParametricDesign skill, call get_design_guide first; \
-(2) if the user talks about the design they have open (\"this box\", \"make it taller\"), call get_open_design and \
-change THAT design, keeping its params and ids; (3) write the design; (4) call validate_design and fix every error; \
-(5) call render_preview and look at the images to confirm the shape matches the request; use measure for fits and \
-clearances; (6) when it is right, call open_in_app: mode \"update\" for a change to the open design (the user sees a \
-side-by-side compare and accepts it), mode \"new\" for a different design (it is added to their library). \
+Workflow: (1) if the user says they prepared a request in the app (\"my request\", \"the request I prepared\"), call \
+get_design_request: it holds their description, photos, printer and chosen skills; (2) if you have not loaded the \
+ParametricDesign skill, call get_design_guide first (with the skills the request names); (3) if the user talks about \
+the design they have open (\"this box\", \"make it taller\"), call get_open_design and change THAT design, keeping \
+its params and ids; (4) write the design; (5) call validate_design and fix every error; (6) call render_preview and \
+look at the images to confirm the shape matches the request; use measure for fits and clearances; (7) when it is \
+right, call open_in_app: mode \"update\" for a change to the open design (the user sees a side-by-side compare and \
+accepts it), mode \"new\" for a different design (it is added to their library). \
 Never show the user a design that has not passed validate_design.";
 
 /// The printer chosen in the app's settings, used for bed-size checks.
@@ -82,6 +84,13 @@ fn tools() -> Json {
             "name": "get_open_design",
             "title": "Get the design open in the app",
             "description": "Returns the design the user has open in the ParametricDesign app right now: its id, name, version, the slider values they are using and the full design JSON. Call this before changing \"this design\"; then send the change back with open_in_app mode \"update\".",
+            "inputSchema": {"type": "object", "properties": {}},
+            "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "get_design_request",
+            "title": "Get the design request prepared in the app",
+            "description": "Returns the newest design request the user prepared in the ParametricDesign app (New design -> Design with AI): their description, reference photos (as images), their printer and the optional skills they picked. Call this when the user says they prepared or sent a request in the app, then design it and send it with open_in_app mode \"new\".",
             "inputSchema": {"type": "object", "properties": {}},
             "annotations": {"readOnlyHint": true}
         },
@@ -169,6 +178,93 @@ fn built(
             report.to_text()
         ))),
     }
+}
+
+fn num(v: Option<&Json>) -> String {
+    let s = format!("{:.1}", v.and_then(|x| x.as_f64()).unwrap_or(0.0));
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// The request as text (brief, photo notes, printer, next steps) followed by
+/// the photos as images.
+fn design_request_content(dir: &std::path::Path, req: &Json) -> Vec<Json> {
+    let field = |k: &str| {
+        req.get(k)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    };
+    let mut out = String::from("Design request the user prepared in the ParametricDesign app.\n\n");
+    if let Some(t) = field("title") {
+        out.push_str(&format!("What to design: {t}\n\n"));
+    }
+    if let Some(b) = field("brief") {
+        out.push_str(b);
+        out.push_str("\n\n");
+    }
+    let mut images = vec![];
+    for p in req
+        .get("photos")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let file = p.get("file").and_then(|f| f.as_str()).unwrap_or_default();
+        let Ok(bytes) = std::fs::read(dir.join(file)) else {
+            continue;
+        };
+        let mime = match file.rsplit('.').next() {
+            Some("png") => "image/png",
+            Some("webp") => "image/webp",
+            Some("gif") => "image/gif",
+            _ => "image/jpeg",
+        };
+        images.push(json!({"type": "image", "data": base64(&bytes), "mimeType": mime}));
+        let caption = p
+            .get("caption")
+            .and_then(|c| c.as_str())
+            .map(str::trim)
+            .filter(|c| !c.is_empty());
+        out.push_str(&format!(
+            "- Photo {} (image {} below){}\n",
+            images.len(),
+            images.len(),
+            caption.map(|c| format!(": {c}")).unwrap_or_default()
+        ));
+    }
+    if let Some(p) = req.get("printer").filter(|p| p.get("bed").is_some()) {
+        let bed = p.get("bed");
+        out.push_str(&format!(
+            "- Printer: {} (bed {} × {} × {} mm, {} mm nozzle). Every part must fit on this bed.\n",
+            p.get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("their printer"),
+            num(bed.and_then(|b| b.get(0))),
+            num(bed.and_then(|b| b.get(1))),
+            num(bed.and_then(|b| b.get(2))),
+            num(p.get("nozzle"))
+        ));
+    }
+    let skills: Vec<&str> = req
+        .get("optional")
+        .and_then(|o| o.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|s| s.as_str())
+        .collect();
+    out.push_str(&format!(
+        "\nNext: unless you already loaded these skills, call get_design_guide{} (the core skills are always included). \
+Then write the design, call validate_design and render_preview, fix what they show, and send it with open_in_app mode \"new\". \
+Design exactly this; don't ask follow-up questions unless something essential is missing, and expose anything uncertain as a parameter.",
+        if skills.is_empty() {
+            String::new()
+        } else {
+            format!(" with skills {}", json!(skills))
+        }
+    ));
+    let mut content = vec![text(out)];
+    content.extend(images);
+    content
 }
 
 fn catalog() -> Result<pd_skills::Catalog, Json> {
@@ -304,6 +400,14 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
                 "params": cur.get("params"), "design": cur.get("design")
             })).unwrap())]}),
             )
+        }
+        "get_design_request" => {
+            let Some((dir, req)) = pd_library::config::latest_request() else {
+                return Ok(
+                    json!({"content": [text("No design request has been prepared in the ParametricDesign app yet. Ask the user to describe the design here, or to prepare it in the app (New design -> Design with AI -> Send to Claude).")]}),
+                );
+            };
+            Ok(json!({"content": design_request_content(&dir, &req)}))
         }
         "open_in_app" => {
             let raw = args
@@ -515,7 +619,7 @@ pub fn handle(msg: &Json) -> Option<Json> {
                 c.prompt(&pd_skills::BundleRequest {
                     optional: skills,
                     brief: Some(brief),
-                    photos: vec![],
+                    ..Default::default()
                 })
             }) {
                 Ok(p) => Ok(
@@ -585,7 +689,7 @@ mod tests {
             handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none()
         );
         let r = handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).unwrap();
-        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 8);
+        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 9);
     }
 
     #[test]
@@ -632,6 +736,30 @@ mod tests {
         assert_eq!(item["kind"], "update");
         assert_eq!(item["designId"], "cup-1");
         assert_eq!(item["message"], "taller");
+
+        // a request prepared in the app (same test: PD_HOME is process-wide)
+        let r = call_tool("get_design_request", &json!({}));
+        assert!(r["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("No design request"));
+        pd_library::config::write_request(&json!({
+            "title": "Headphone hook",
+            "brief": "Clamps under a 25 mm desk top.",
+            "optional": ["connector-screws"],
+            "printer": {"name": "Bambu Lab P1S", "bed": [256, 256, 256], "nozzle": 0.4},
+            "photos": [{"name": "desk.jpg", "caption": "desk edge with a ruler", "data": "data:image/jpeg;base64,/9j/4AAQ"}]
+        }))
+        .unwrap();
+        let r = call_tool("get_design_request", &json!({}));
+        let t = r["content"][0]["text"].as_str().unwrap();
+        assert!(t.contains("What to design: Headphone hook"), "{t}");
+        assert!(t.contains("- Photo 1 (image 1 below): desk edge with a ruler"));
+        assert!(t.contains("bed 256 × 256 × 256 mm, 0.4 mm nozzle"));
+        assert!(t.contains("get_design_guide with skills [\"connector-screws\"]"));
+        assert_eq!(r["content"][1]["type"], "image");
+        assert_eq!(r["content"][1]["mimeType"], "image/jpeg");
+        assert_eq!(r["content"][1]["data"], "/9j/4AAQ");
         let _ = std::fs::remove_dir_all(&home);
     }
 }
