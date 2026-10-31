@@ -53,17 +53,16 @@ The catalog is the heart of the product. A **skill** is a well-written, detailed
 
 ### Categories
 
-Skills are grouped into sections. For example:
+The catalog is split into sections. The first section is always included, and the user picks from the others:
 
-| Category | Example skills |
-|---|---|
-| **Connectors** | Dovetail, snap-fit, magnets, alignment pins, screws and heat-set inserts |
-| **Multi-part** | Splitting objects too big for the printer, assemblies, clearances between parts |
-| **Enclosures** | Boxes and lids, electronics cases |
-| **Printability** | Wall thickness, tolerances, overhangs, print orientation |
-| **From photos** | Estimating sizes from photos and reference objects |
+| Category | Skills | Picked by |
+|---|---|---|
+| **Core** | The design language; designing for 3D printing (walls, tolerances, overhangs, orientation); sizes from photos and descriptions | Always included |
+| **Multi-part** | Splitting objects too big for the printer into pieces, assemblies, clearances between parts | The user |
+| **Connectors** | Dovetail, alignment pins, magnets (choose one of these three to join split pieces); snap-fit lids; screws, nuts and heat-set inserts | The user |
+| **Enclosures** | Electronics cases: standoffs, port cut-outs, vents, screwed lids | The user |
 
-A few **core skills** (the design language and the basics of 3D printing) are always included. The user picks the rest.
+Some skills bring others with them. For example, every connector for split pieces adds **Multi-part**, and **Enclosures** adds **screws**. New categories appear as soon as a skill uses them.
 
 ### Skills are just folders
 
