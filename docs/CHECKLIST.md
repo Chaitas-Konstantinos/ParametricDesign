@@ -55,7 +55,7 @@ Last updated: 30 October 2026 (Design with AI added).
 - [ ] **You:** Terms of use, privacy policy and a takedown process, before the
   website is public (not discussed yet; see section 12).
 
-## 1. Finish installing 0.2.0 on your PC
+## 1. Install 0.2.1 on your PC
 
 Run these in `apps\desktop`, where your terminal already is.
 
@@ -75,7 +75,7 @@ Run these in `apps\desktop`, where your terminal already is.
 - [ ] Build the installers: `npx tauri build --config src-tauri/tauri.installer.conf.json`
   (if it stops with error 4551, run it again).
 - [ ] Install with the **MSI**, not the setup `.exe`:
-  `.\src-tauri\target\release\bundle\msi\ParametricDesign_0.2.0_x64_en-US.msi`.
+  `.\src-tauri\target\release\bundle\msi\ParametricDesign_0.2.1_x64_en-US.msi`.
   0.1.0 was installed from the MSI into `C:\Program Files\ParametricDesign`, and the
   MSI upgrades it in place. The setup `.exe` installs a second copy for your user
   only, under `%LOCALAPPDATA%`, and Claude would keep using the old `pd.exe`.
