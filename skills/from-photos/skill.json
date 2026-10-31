@@ -1,0 +1,7 @@
+{
+  "title": "Core: sizes from photos and descriptions",
+  "category": "Core",
+  "summary": "Turning photos, sketches and rough descriptions into dimensions and params.",
+  "order": 30,
+  "core": true
+}

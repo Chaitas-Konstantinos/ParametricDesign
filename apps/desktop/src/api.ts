@@ -154,13 +154,27 @@ export interface CurrentState {
 }
 
 export interface SkillInfo {
+  /** The skill's folder name. */
   id: string;
   title: string;
+  /** Catalog section ("Connectors"). */
+  category: string;
   core: boolean;
   /** Skills in one group are alternatives (pick one connector type). */
   group?: string | null;
   requires: string[];
   summary: string;
+  order: number;
+  /** Picture for the catalog, as a data URL. */
+  thumbnail?: string | null;
+}
+
+export interface SkillCatalog {
+  skills: SkillInfo[];
+  /** Skills that couldn't be read and why, for whoever edits the skills folder. */
+  problems: string[];
+  /** Where the skills are read from; null in the browser (built-in skills only). */
+  folder: string | null;
 }
 
 export interface RequestPhoto {
@@ -223,7 +237,12 @@ export interface Api {
   importFiles(): Promise<string[]>;
   addExamples(): Promise<number>;
 
-  skillsCatalog(): Promise<SkillInfo[]>;
+  /** Read from the skills folder every time, so edits there show at once. */
+  skillsCatalog(): Promise<SkillCatalog>;
+  /** Opens the skills folder in Explorer (desktop app only). */
+  openSkillsFolder(): Promise<void>;
+  /** Puts back the original built-in skills; resolves to the number of files changed. */
+  restoreSkills(): Promise<number>;
   /** Asks where to save the tailored skill (.zip); null if cancelled. */
   exportSkillBundle(req: DesignRequest): Promise<{ name: string; fileName: string; starter: string; path: string } | null>;
   /** Asks where to save one skill (.zip); resolves to the path, or null if cancelled. */
@@ -308,6 +327,8 @@ async function desktopApi(): Promise<Api> {
     },
     addExamples: () => invoke("library_add_examples"),
     skillsCatalog: () => invoke("skills_catalog"),
+    openSkillsFolder: () => invoke("skills_open_folder"),
+    restoreSkills: () => invoke("skills_restore"),
     async exportSkillBundle(req) {
       const request = requestJson(req);
       const suggested = (await invoke<{ fileName: string }>("skills_prompt", { request })).fileName.replace(/\.md$/, ".zip");
@@ -589,6 +610,12 @@ async function browserApi(): Promise<Api> {
       return EXAMPLES.length;
     },
     skillsCatalog: async () => JSON.parse(wasm.skills_catalog()),
+    async openSkillsFolder() {
+      throw new Error("The skills folder needs the desktop app.");
+    },
+    async restoreSkills() {
+      return 0;
+    },
     async exportSkillBundle(req) {
       const request = requestJson(req);
       const info = JSON.parse(wasm.skills_bundle_info(request));

@@ -1,0 +1,9 @@
+{
+  "title": "Electronics enclosures",
+  "category": "Enclosures",
+  "summary": "Cases for circuit boards: standoffs, port cut-outs, ventilation, screwed lids.",
+  "order": 100,
+  "requires": [
+    "connector-screws"
+  ]
+}

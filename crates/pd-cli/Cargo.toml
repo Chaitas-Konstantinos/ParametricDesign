@@ -14,5 +14,6 @@ pd-core.workspace = true
 pd-export.workspace = true
 pd-render.workspace = true
 pd-skills.workspace = true
+pd-library.workspace = true
 pd-mcp.workspace = true
 serde_json.workspace = true

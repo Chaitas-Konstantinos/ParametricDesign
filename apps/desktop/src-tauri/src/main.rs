@@ -63,6 +63,34 @@ fn skills_catalog() -> R<Json> {
     pd_app::skills_catalog()
 }
 
+/// Opens the skills folder in Explorer (Finder, the file manager), creating it
+/// with the built-in skills first if needed.
+#[tauri::command(async)]
+fn skills_open_folder() -> R<()> {
+    let (dir, managed) = pd_library::config::skills_dir();
+    if managed {
+        pd_skills::sync_builtin(&dir, false)?;
+    }
+    let opener = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(&dir)
+        .spawn()
+        .map(drop)
+        .map_err(|e| format!("cannot open {}: {e}", dir.display()))
+}
+
+/// Writes the original built-in skills back; returns how many files changed.
+#[tauri::command(async)]
+fn skills_restore() -> R<usize> {
+    pd_skills::sync_builtin(&pd_library::config::skills_dir().0, true)
+}
+
 /// Writes the tailored skill (.zip); returns `{name, fileName, starter}`.
 #[tauri::command(async)]
 fn skills_export_bundle(request: String, path: String) -> R<Json> {
@@ -374,6 +402,8 @@ fn main() {
             library_import_file,
             library_add_examples,
             skills_catalog,
+            skills_open_folder,
+            skills_restore,
             skills_export_bundle,
             skills_export_one,
             skills_prompt,

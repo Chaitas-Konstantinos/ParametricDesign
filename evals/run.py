@@ -33,6 +33,8 @@ from pathlib import Path
 import anthropic
 
 ROOT = Path(__file__).resolve().parent.parent
+# Evaluate the skills in this repository, not the ones in the user's skills folder.
+os.environ.setdefault("PD_SKILLS", str(ROOT / "skills"))
 DEFAULT_MODEL = "claude-opus-5-5"
 
 

@@ -65,6 +65,10 @@ Skills are grouped into sections. For example:
 
 A few **core skills** (the design language and the basics of 3D printing) are always included. The user picks the rest.
 
+### Skills are just folders
+
+The catalog is a normal folder on your computer (`Documents\ParametricDesign Skills`): one folder per skill. **To add a skill, add a folder. To improve one, edit its text.** The app and the LLM pick up the change straight away, with nothing to compile or reinstall. A skill with a mistake is left out and the app says what to fix. App updates never overwrite skills you changed. How to write a skill: [skills/README.md](skills/README.md).
+
 ### What a skill contains
 
 Each skill has two sides: one for the user and one for the LLM.

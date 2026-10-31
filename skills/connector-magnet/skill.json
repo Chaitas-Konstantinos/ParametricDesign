@@ -1,0 +1,10 @@
+{
+  "title": "Connector: magnets",
+  "category": "Connectors",
+  "summary": "Split pieces held by disc magnets: removable, any cut direction.",
+  "order": 70,
+  "group": "connector",
+  "requires": [
+    "multi-part"
+  ]
+}

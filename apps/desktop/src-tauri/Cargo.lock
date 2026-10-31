@@ -2196,6 +2196,7 @@ version = "0.2.1"
 dependencies = [
  "pd-app",
  "pd-library",
+ "pd-skills",
  "serde",
  "serde_json",
  "tauri",
@@ -2232,6 +2233,7 @@ version = "0.1.0"
 dependencies = [
  "pd-core",
  "pd-export",
+ "pd-library",
  "pd-render",
  "pd-skills",
  "serde",
@@ -2261,6 +2263,7 @@ dependencies = [
 name = "pd-library"
 version = "0.1.0"
 dependencies = [
+ "pd-skills",
  "serde",
  "serde_json",
 ]

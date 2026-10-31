@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../App";
-import type { DesignRequest, RequestPhoto, SkillInfo } from "../api";
+import type { DesignRequest, RequestPhoto, SkillCatalog, SkillInfo } from "../api";
 import { Icon } from "../components/Icon";
-import { useUi } from "../components/ui";
+import { MenuButton, useUi } from "../components/ui";
 import { fmtSize } from "../settings";
 
 interface Draft {
@@ -18,7 +18,7 @@ const EMPTY: Draft = { title: "", brief: "", photos: [], optional: [], withPrint
 
 // The request survives leaving the screen while the app runs.
 let draft: Draft = EMPTY;
-let catalogCache: SkillInfo[] | null = null;
+let catalogCache: SkillCatalog | null = null;
 
 const MAX_PHOTOS = 10;
 // The size vision models look at; keeps requests and skill files small.
@@ -103,7 +103,8 @@ export function AskScreen() {
   const { api, settings, go } = useApp();
   const ui = useUi();
   const [req, setReq] = useState<Draft>(draft);
-  const [catalog, setCatalog] = useState<SkillInfo[] | null>(catalogCache);
+  const [skills, setSkills] = useState<SkillCatalog | null>(catalogCache);
+  const catalog = skills?.skills ?? null;
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -120,16 +121,42 @@ export function AskScreen() {
     setResult(null);
   }, [req]);
 
+  // The skills folder is read again on every visit and whenever the window
+  // gets focus, so skills added or edited there show up straight away.
+  const loadSkills = async (announce = false) => {
+    try {
+      const c = await api.skillsCatalog();
+      catalogCache = c;
+      setSkills(c);
+      // drop picks whose skill was removed from the folder
+      setReq((r) => {
+        const kept = r.optional.filter((id) => c.skills.some((s) => s.id === id && !s.core));
+        return kept.length === r.optional.length ? r : { ...r, optional: kept };
+      });
+      if (announce) ui.toast(`${c.skills.length} skills loaded.`, { kind: "ok" });
+    } catch (e) {
+      ui.toast(String(e), { kind: "error" });
+    }
+  };
   useEffect(() => {
-    if (catalogCache) return;
-    api.skillsCatalog().then(
-      (c) => {
-        catalogCache = c;
-        setCatalog(c);
-      },
-      (e) => ui.toast(String(e), { kind: "error" }),
-    );
+    void loadSkills();
+    if (!desktop) return;
+    const onFocus = () => void loadSkills();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [api]);
+
+  const openSkillsFolder = () => api.openSkillsFolder().catch((e) => ui.toast(String(e), { kind: "error" }));
+  const restoreSkills = async () => {
+    if (!(await ui.confirm("Restore built-in skills?", "The built-in skills go back to their original text. Your changes to them are lost; skills you added are kept.", "Restore"))) return;
+    try {
+      const n = await api.restoreSkills();
+      ui.toast(n ? `Restored ${n} files.` : "The built-in skills were already original.", { kind: "ok" });
+      await loadSkills();
+    } catch (e) {
+      ui.toast(String(e), { kind: "error" });
+    }
+  };
 
   const update = (patch: Partial<Draft>) => setReq((r) => ({ ...r, ...patch }));
 
@@ -241,7 +268,12 @@ export function AskScreen() {
     });
 
   const core = catalog?.filter((s) => s.core) ?? [];
-  const optional = catalog?.filter((s) => !s.core) ?? [];
+  // by category, categories in the order their first skill comes
+  const optional = useMemo(() => {
+    const rest = catalog?.filter((s) => !s.core) ?? [];
+    const cats = [...new Set(rest.map((s) => s.category))];
+    return cats.flatMap((c) => rest.filter((s) => s.category === c));
+  }, [catalog]);
   const title = (id: string) => catalog?.find((s) => s.id === id)?.title ?? id;
   const groupSize = (g?: string | null) => (g ? optional.filter((s) => s.group === g).length : 0);
   const photosNote = request.photos.length ? `, attach your ${request.photos.length === 1 ? "photo" : `${request.photos.length} photos`}` : "";
@@ -375,8 +407,42 @@ export function AskScreen() {
           </section>
 
           <section className="card-panel ask-skills" aria-labelledby="ask-skills">
-            <h2 id="ask-skills">2 · Skills</h2>
-            <p className="muted">Skills teach the AI how to write designs for this app. The core skills are always included; tick the ones your design needs.</p>
+            <div className="row skills-head">
+              <h2 id="ask-skills" className="grow">2 · Skills</h2>
+              {desktop && (
+                <button type="button" className="btn small ghost" title={skills?.folder ?? undefined} onClick={() => void openSkillsFolder()}>
+                  <Icon name="folder" size={16} />
+                  Open skills folder
+                </button>
+              )}
+              <MenuButton
+                className="icon-btn small ghost"
+                ariaLabel="More skill actions"
+                align="right"
+                button={<Icon name="more" size={16} />}
+                items={[
+                  { label: "Reload skills", icon: "restore", run: () => void loadSkills(true) },
+                  ...(desktop ? [{ label: "Restore built-in skills…", icon: "history", run: () => void restoreSkills() }] : []),
+                ]}
+              />
+            </div>
+            <p className="muted">
+              Skills teach the AI how to design things for this app. The core skills are always included; tick the ones your design needs.
+              {desktop && " Add your own or change these in the skills folder: changes show up here straight away."}
+            </p>
+            {skills && skills.problems.length > 0 && (
+              <div className="skill-problems" role="alert">
+                <Icon name="alert" size={17} />
+                <div>
+                  <b>Some skills need fixing</b>
+                  <ul>
+                    {skills.problems.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
             {!catalog && <p className="muted">Loading skills…</p>}
             {core.length > 0 && <h3 className="section-title">Always included</h3>}
             {core.map((s) => (
@@ -384,6 +450,7 @@ export function AskScreen() {
                 <span className="skill-check" title="Always included">
                   <Icon name="lock" size={17} />
                 </span>
+                <SkillThumb skill={s} />
                 <div className="skill-text grow">
                   <span className="strong">{capitalize(s.title.replace(/^Core: /, ""))}</span>
                   <span className="muted small">{s.summary}</span>
@@ -393,14 +460,15 @@ export function AskScreen() {
                 </button>
               </div>
             ))}
-            {optional.length > 0 && <h3 className="section-title">Add what your design needs</h3>}
             {optional.map((s, i) => {
+              const firstOfCategory = i === 0 || optional[i - 1].category !== s.category;
               const on = selected.includes(s.id);
               const neededBy = optional.filter((o) => selected.includes(o.id) && o.requires.includes(s.id));
               const grouped = groupSize(s.group) > 1;
               const firstOfGroup = grouped && optional.findIndex((o) => o.group === s.group) === i;
               return (
                 <Fragment key={s.id}>
+                  {firstOfCategory && <h3 className="section-title">{s.category}</h3>}
                   {firstOfGroup && <h4 className="skill-group">{capitalize(s.group!)} · pick one</h4>}
                   <div className={`skill-row ${on ? "on" : ""} ${grouped ? "in-group" : ""}`}>
                     <input
@@ -417,6 +485,7 @@ export function AskScreen() {
                         update({ optional: pick(catalog, req.optional, s.id, e.target.checked) });
                       }}
                     />
+                    <SkillThumb skill={s} />
                     <label htmlFor={`skill-${s.id}`} className="skill-text grow">
                       <span className="strong">{grouped ? capitalize(s.title.replace(new RegExp(`^${s.group}: `, "i"), "")) : s.title}</span>
                       <span className="muted small">{s.summary}</span>
@@ -526,4 +595,10 @@ export function AskScreen() {
       </main>
     </div>
   );
+}
+
+/** The skill's catalog picture, if it has one. */
+function SkillThumb({ skill }: { skill: SkillInfo }) {
+  if (!skill.thumbnail) return null;
+  return <img className="skill-thumb" src={skill.thumbnail} alt="" />;
 }

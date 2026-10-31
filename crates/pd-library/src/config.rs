@@ -86,6 +86,34 @@ pub fn library_path() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// The skills folder the app and the MCP server read: `PD_SKILLS` if set (for
+/// working on skills, read as-is), else the `skillsPath` setting, else
+/// `Documents/ParametricDesign Skills` (`PD_HOME/skills` when `PD_HOME` is set).
+/// The second value says whether the built-in skills are kept in sync there.
+pub fn skills_dir() -> (PathBuf, bool) {
+    if let Some(d) = std::env::var_os("PD_SKILLS").filter(|d| !d.is_empty()) {
+        return (PathBuf::from(d), false);
+    }
+    let set = load_settings()
+        .get("skillsPath")
+        .and_then(|p| p.as_str())
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from);
+    let dir = set.unwrap_or_else(|| match std::env::var_os("PD_HOME") {
+        Some(_) => config_dir().join("skills"),
+        None => documents().join("ParametricDesign Skills"),
+    });
+    (dir, true)
+}
+
+/// The skill catalog from the skills folder, read fresh so edits apply at once.
+pub fn skills_catalog() -> Result<pd_skills::Catalog, String> {
+    match skills_dir() {
+        (dir, true) => pd_skills::Catalog::installed(&dir),
+        (dir, false) => pd_skills::Catalog::load(Some(&dir)),
+    }
+}
+
 /// The user's printer as `{"bed": [x, y, z], "nozzle": n}`, if set.
 pub fn printer() -> Option<Json> {
     load_settings()

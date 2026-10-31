@@ -1,0 +1,10 @@
+{
+  "title": "Connector: alignment pins",
+  "category": "Connectors",
+  "summary": "Split pieces aligned with printed pins (or filament / dowels) and glued.",
+  "order": 60,
+  "group": "connector",
+  "requires": [
+    "multi-part"
+  ]
+}

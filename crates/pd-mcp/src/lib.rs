@@ -288,7 +288,7 @@ Design exactly this; don't ask follow-up questions unless something essential is
 }
 
 fn catalog() -> Result<pd_skills::Catalog, Json> {
-    pd_skills::Catalog::load(None).map_err(tool_error)
+    pd_library::config::skills_catalog().map_err(tool_error)
 }
 
 pub fn call_tool(name: &str, args: &Json) -> Json {
@@ -585,7 +585,7 @@ fn resources() -> Vec<(String, String, String)> {
         "Component reference".to_string(),
         "text/markdown".to_string(),
     )];
-    if let Ok(cat) = pd_skills::Catalog::load(None) {
+    if let Ok(cat) = pd_library::config::skills_catalog() {
         for s in &cat.skills {
             out.push((
                 format!("pd://skills/{}/SKILL.md", s.id),
@@ -602,7 +602,7 @@ fn read_resource(uri: &str) -> Option<String> {
         return Some(pd_core::spec::components_markdown());
     }
     let rest = uri.strip_prefix("pd://skills/")?;
-    pd_skills::Catalog::load(None).ok()?.text(rest)
+    pd_library::config::skills_catalog().ok()?.text(rest)
 }
 
 /// Handle one JSON-RPC message. Returns the response (None for notifications).
@@ -674,7 +674,7 @@ pub fn handle(msg: &Json) -> Option<Json> {
                         .collect()
                 })
                 .unwrap_or_default();
-            match pd_skills::Catalog::load(None).and_then(|c| {
+            match pd_library::config::skills_catalog().and_then(|c| {
                 c.prompt(&pd_skills::BundleRequest {
                     optional: skills,
                     brief: Some(brief),

@@ -17,13 +17,18 @@ USAGE:
   pd export   <design.pd.json> --format stl|3mf [-o out] [--part <id>] [--assembled] [--set name=value]...
   pd measure  <design.pd.json> [--query '{\"type\":\"distance\",\"a\":\"box\",\"b\":\"lid\"}']... [--set name=value]...
   pd docs components               Markdown reference of every component and joint
-  pd skills list                   Skills in the catalog
+  pd skills list                   Skills in the catalog, by category
+  pd skills folder                 Where the skills are read from (add or edit skills there)
+  pd skills restore                Put back the original built-in skills in that folder
   pd skills export <id> [-o dir|file.zip]
                                    One skill as a folder (or a .zip)
   pd skills bundle [--with a,b] [--title name] [--brief text | --brief-file f] [--photo img]...
                    [-o dir|file.zip] [--prompt]
                                    Core skills + chosen optional skills merged into one tailored skill
   pd mcp                           Run the MCP server on stdio (for Claude Desktop, Cursor, LM Studio, ...)
+
+Skills come from the skills folder (`pd skills folder`); --skills-dir <dir> or
+PD_SKILLS=<dir> reads another folder as-is.
 
 Values given with --set override params, e.g. --set width=120 --set style=round.";
 
@@ -337,15 +342,53 @@ fn is_zip(p: &Path) -> bool {
 }
 
 fn skills(args: &Args) -> ExitCode {
-    let catalog = match pd_skills::Catalog::load(args.get("--skills-dir").map(Path::new)) {
+    let (dir, managed) = match args.get("--skills-dir") {
+        Some(d) => (PathBuf::from(d), false),
+        None => pd_library::config::skills_dir(),
+    };
+    match args.pos.first().map(|s| s.as_str()) {
+        Some("folder") => {
+            if managed {
+                if let Err(e) = pd_skills::sync_builtin(&dir, false) {
+                    return fail(e);
+                }
+            }
+            println!("{}", dir.display());
+            return ExitCode::SUCCESS;
+        }
+        Some("restore") => {
+            return match pd_skills::sync_builtin(&dir, true) {
+                Ok(n) => {
+                    println!("restored {n} built-in files in {}", dir.display());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => fail(e),
+            };
+        }
+        _ => {}
+    }
+    let loaded = if managed {
+        pd_skills::Catalog::installed(&dir)
+    } else {
+        pd_skills::Catalog::load(Some(&dir))
+    };
+    let catalog = match loaded {
         Ok(c) => c,
         Err(e) => return fail(e),
     };
+    for p in &catalog.problems {
+        eprintln!("warning: {p}");
+    }
     match args.pos.first().map(|s| s.as_str()) {
         Some("list") => {
+            let mut category = "";
             for s in &catalog.skills {
+                if s.category != category {
+                    category = &s.category;
+                    println!("{category}");
+                }
                 println!(
-                    "{:<22} {:<9} {}",
+                    "  {:<22} {:<9} {}",
                     s.id,
                     if s.core { "core" } else { "optional" },
                     s.summary

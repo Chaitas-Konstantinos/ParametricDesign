@@ -1,0 +1,10 @@
+{
+  "title": "Connector: dovetail",
+  "category": "Connectors",
+  "summary": "Split pieces joined by sliding dovetail keys (flat or tray-like objects).",
+  "order": 50,
+  "group": "connector",
+  "requires": [
+    "multi-part"
+  ]
+}

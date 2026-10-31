@@ -1,0 +1,7 @@
+{
+  "title": "Core: designing for 3D printing",
+  "category": "Core",
+  "summary": "FDM rules: walls, tolerances, overhangs, orientation, bed size.",
+  "order": 20,
+  "core": true
+}

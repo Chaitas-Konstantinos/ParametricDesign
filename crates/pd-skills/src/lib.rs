@@ -2,6 +2,12 @@
 //! optional ones. A selection can be exported as one tailored skill (a folder,
 //! or a .zip for apps that install skills), as a single pasteable prompt, or
 //! skill by skill.
+//!
+//! Skills are plain folders: `<id>/SKILL.md` is what the LLM reads, and an
+//! optional `<id>/skill.json` plus a thumbnail are what the user sees in the
+//! catalog. The app reads them from a folder on disk every time, so adding or
+//! editing a skill needs no rebuild; the built-in set is embedded in the binary
+//! and copied into that folder (see [`sync_builtin`]).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
@@ -13,8 +19,11 @@ mod embedded;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SkillInfo {
+    /// The skill's folder name.
     pub id: String,
     pub title: String,
+    /// The catalog section it is listed under ("Connectors").
+    pub category: String,
     #[serde(default)]
     pub core: bool,
     /// Skills in the same group are alternatives (e.g. one connector type).
@@ -22,16 +31,44 @@ pub struct SkillInfo {
     pub group: Option<String>,
     #[serde(default)]
     pub requires: Vec<String>,
+    /// What the skill does, for the user.
     pub summary: String,
+    /// Sort key: lower comes first in the catalog and in bundles.
+    pub order: i64,
+    /// Picture for the catalog, relative to the skill's folder.
+    pub thumbnail: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct CatalogFile {
-    skills: Vec<SkillInfo>,
+/// `skill.json`: everything is optional.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkillMeta {
+    title: Option<String>,
+    category: Option<String>,
+    #[serde(default)]
+    core: bool,
+    group: Option<String>,
+    #[serde(default)]
+    requires: Vec<String>,
+    summary: Option<String>,
+    order: Option<i64>,
+    thumbnail: Option<String>,
 }
+
+/// Files in a skill's folder that are for the app, not the LLM.
+const META_FILE: &str = "skill.json";
+const THUMBNAILS: [&str; 4] = [
+    "thumbnail.png",
+    "thumbnail.jpg",
+    "thumbnail.jpeg",
+    "thumbnail.webp",
+];
 
 pub struct Catalog {
     pub skills: Vec<SkillInfo>,
+    /// Skills that could not be read, and other things worth fixing, in words
+    /// for the person editing the skills folder.
+    pub problems: Vec<String>,
     /// path relative to the skills root -> contents
     files: BTreeMap<String, Vec<u8>>,
 }
@@ -276,57 +313,304 @@ fn write_files(out: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result<(), Stri
     Ok(())
 }
 
-impl Catalog {
-    /// Load from a skills directory, or the copy embedded in the binary.
-    pub fn load(dir: Option<&Path>) -> Result<Catalog, String> {
-        let mut files = BTreeMap::new();
-        match dir {
-            Some(d) => {
-                fn walk(
-                    dir: &Path,
-                    root: &Path,
-                    out: &mut BTreeMap<String, Vec<u8>>,
-                ) -> std::io::Result<()> {
-                    for e in std::fs::read_dir(dir)? {
-                        let p = e?.path();
-                        if p.is_dir() {
-                            walk(&p, root, out)?;
-                        } else {
-                            out.insert(
-                                p.strip_prefix(root)
-                                    .unwrap()
-                                    .to_string_lossy()
-                                    .replace('\\', "/"),
-                                std::fs::read(&p)?,
-                            );
-                        }
-                    }
-                    Ok(())
-                }
-                walk(d, d, &mut files)
-                    .map_err(|e| format!("cannot read skills from {}: {e}", d.display()))?;
+/// Every file under `dir`, keyed by its path relative to `dir` with `/`.
+/// Hidden files and folders (and the sync record) are skipped.
+fn read_tree(dir: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    fn walk(dir: &Path, root: &Path, out: &mut BTreeMap<String, Vec<u8>>) -> std::io::Result<()> {
+        for e in std::fs::read_dir(dir)? {
+            let e = e?;
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
             }
-            None => {
-                for (p, b) in embedded::FILES {
-                    files.insert(p.to_string(), b.to_vec());
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, root, out)?;
+            } else {
+                let rel = p
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.insert(rel, std::fs::read(&p)?);
+            }
+        }
+        Ok(())
+    }
+    let mut files = BTreeMap::new();
+    walk(dir, dir, &mut files)
+        .map_err(|e| format!("cannot read skills from {}: {e}", dir.display()))?;
+    Ok(files)
+}
+
+/// `name` and `description` from a SKILL.md's frontmatter.
+fn frontmatter(md: &str) -> (Option<String>, Option<String>) {
+    let mut name = None;
+    let mut desc = None;
+    if let Some(rest) = md.trim_start_matches('\u{feff}').strip_prefix("---") {
+        if let Some(end) = rest.find("\n---") {
+            for line in rest[..end].lines() {
+                if let Some((k, v)) = line.split_once(':') {
+                    let v = v.trim().trim_matches('"').trim().to_string();
+                    match k.trim() {
+                        "name" if !v.is_empty() => name = Some(v),
+                        "description" if !v.is_empty() => desc = Some(v),
+                        _ => {}
+                    }
                 }
             }
         }
+    }
+    (name, desc)
+}
+
+/// "connector-dovetail" -> "Connector dovetail"
+fn title_from_id(id: &str) -> String {
+    let t = id.replace(['-', '_'], " ");
+    let mut c = t.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().chain(c).collect(),
+        None => t,
+    }
+}
+
+/// One skill's catalog entry, and warnings that don't stop it being used.
+fn skill_info(
+    id: &str,
+    skill_md: &[u8],
+    files: &BTreeMap<String, Vec<u8>>,
+) -> Result<(SkillInfo, Vec<String>), String> {
+    let mut warnings = vec![];
+    let md = String::from_utf8_lossy(skill_md);
+    let (name, description) = frontmatter(&md);
+    match &name {
+        None => warnings.push(format!(
+            "{id}: SKILL.md should start with a frontmatter block (---, name: {id}, description: ..., ---)"
+        )),
+        Some(n) if n != id => warnings.push(format!(
+            "{id}: the name in SKILL.md is \"{n}\"; it should match the folder name \"{id}\""
+        )),
+        _ => {}
+    }
+    let meta: SkillMeta = match files.get(&format!("{id}/{META_FILE}")) {
+        Some(b) => serde_json::from_slice(b).map_err(|e| {
+            format!("{id}: {META_FILE} is not valid: {e}. The skill is left out until it's fixed.")
+        })?,
+        None => SkillMeta::default(),
+    };
+    let thumbnail = match meta.thumbnail {
+        Some(t) => {
+            if !files.contains_key(&format!("{id}/{t}")) {
+                warnings.push(format!("{id}: the thumbnail \"{t}\" is missing"));
+            }
+            Some(t)
+        }
+        None => THUMBNAILS
+            .iter()
+            .find(|t| files.contains_key(&format!("{id}/{t}")))
+            .map(|t| t.to_string()),
+    };
+    let summary = meta.summary.or(description).unwrap_or_default();
+    Ok((
+        SkillInfo {
+            id: id.to_string(),
+            title: meta.title.unwrap_or_else(|| title_from_id(id)),
+            category: meta.category.unwrap_or_else(|| "Other".into()),
+            core: meta.core,
+            group: meta.group,
+            requires: meta.requires,
+            summary,
+            order: meta.order.unwrap_or(1000),
+            thumbnail,
+        },
+        warnings,
+    ))
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                s.push('=');
+            }
+        }
+    }
+    s
+}
+
+/// A stable 64-bit hash (FNV-1a), to tell whether a file was edited.
+fn fingerprint(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Records which built-in files were written into a skills folder, and what
+/// they contained, so later versions of the app can tell edits from originals.
+const SYNC_FILE: &str = ".builtin-skills.json";
+
+/// Bring the built-in skills into the user's skills folder (created if needed):
+/// - a built-in file that isn't there yet is added, unless the user deleted
+///   that skill's folder;
+/// - a file still exactly as the app wrote it is updated when the built-in
+///   version changes;
+/// - a file the user edited or deleted is left alone, and so is every skill
+///   the user added.
+///
+/// With `force`, every built-in file is written again (restoring the
+/// originals); skills the user added are still left alone.
+pub fn sync_builtin(dir: &Path, force: bool) -> Result<usize, String> {
+    let err = |e: std::io::Error| format!("cannot update the skills folder {}: {e}", dir.display());
+    std::fs::create_dir_all(dir).map_err(err)?;
+    let record_path = dir.join(SYNC_FILE);
+    let mut record: BTreeMap<String, String> = std::fs::read(&record_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let known_skills: Vec<String> = record
+        .keys()
+        .filter_map(|k| k.split_once('/').map(|(d, _)| d.to_string()))
+        .collect();
+    let mut written = 0;
+    for (rel, bytes) in embedded::FILES {
+        let path = dir.join(rel);
+        let new = fingerprint(bytes);
+        let on_disk = std::fs::read(&path).ok();
+        let write = if force {
+            on_disk.as_deref() != Some(*bytes)
+        } else {
+            match (record.get(*rel), &on_disk) {
+                // unchanged since the app wrote it: take the new version
+                (Some(old), Some(d)) => fingerprint(d) == *old && *old != new,
+                // the user deleted it
+                (Some(_), None) => false,
+                // the user's own file with the same name
+                (None, Some(_)) => false,
+                // new built-in file, unless its whole skill was deleted
+                (None, None) => match rel.split_once('/') {
+                    Some((skill, _)) => {
+                        !known_skills.iter().any(|k| k == skill) || dir.join(skill).is_dir()
+                    }
+                    None => true,
+                },
+            }
+        };
+        if write {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(err)?;
+            }
+            std::fs::write(&path, bytes).map_err(err)?;
+            written += 1;
+        }
+        if write || on_disk.as_deref() == Some(*bytes) {
+            record.insert(rel.to_string(), new);
+        }
+    }
+    let text = serde_json::to_string_pretty(&record).unwrap();
+    if std::fs::read_to_string(&record_path).ok().as_deref() != Some(text.as_str()) {
+        std::fs::write(&record_path, text).map_err(err)?;
+    }
+    Ok(written)
+}
+
+impl Catalog {
+    /// The built-in skills embedded in the binary.
+    pub fn builtin() -> Catalog {
+        let files = embedded::FILES
+            .iter()
+            .map(|(p, b)| (p.to_string(), b.to_vec()))
+            .collect();
+        Catalog::from_files(files)
+    }
+
+    /// Load from a skills folder, or the built-in skills when there is none.
+    pub fn load(dir: Option<&Path>) -> Result<Catalog, String> {
+        match dir {
+            Some(d) => Ok(Catalog::from_files(read_tree(d)?)),
+            None => Ok(Catalog::builtin()),
+        }
+    }
+
+    /// The skills folder the user edits: missing built-in skills are added and
+    /// untouched ones updated first ([`sync_builtin`]), then it is read.
+    pub fn installed(dir: &Path) -> Result<Catalog, String> {
+        let sync = sync_builtin(dir, false);
+        let mut c = Catalog::from_files(read_tree(dir)?);
+        if let Err(e) = sync {
+            c.problems.insert(0, e);
+        }
+        Ok(c)
+    }
+
+    /// Every folder with a `SKILL.md` is a skill. Broken ones are left out and
+    /// reported in `problems` instead of failing the whole catalog.
+    fn from_files(mut files: BTreeMap<String, Vec<u8>>) -> Catalog {
         // The component reference is always regenerated from the engine.
-        files.insert(
-            "core-parametric/references/components.md".into(),
-            pd_core::spec::components_markdown().into_bytes(),
-        );
-        let cat: CatalogFile = serde_json::from_slice(
-            files
-                .get("catalog.json")
-                .ok_or("skills/catalog.json is missing")?,
-        )
-        .map_err(|e| format!("bad catalog.json: {e}"))?;
-        Ok(Catalog {
-            skills: cat.skills,
+        if files.contains_key("core-parametric/SKILL.md") {
+            files.insert(
+                "core-parametric/references/components.md".into(),
+                pd_core::spec::components_markdown().into_bytes(),
+            );
+        }
+        let mut skills = vec![];
+        let mut problems = vec![];
+        for (path, bytes) in &files {
+            let Some(id) = path.strip_suffix("/SKILL.md") else {
+                continue;
+            };
+            if id.contains('/') {
+                continue;
+            }
+            match skill_info(id, bytes, &files) {
+                Ok((info, warnings)) => {
+                    skills.push(info);
+                    problems.extend(warnings);
+                }
+                Err(e) => problems.push(e),
+            }
+        }
+        skills.sort_by(|a, b| (a.order, &a.id).cmp(&(b.order, &b.id)));
+        let ids: Vec<String> = skills.iter().map(|s| s.id.clone()).collect();
+        for s in &mut skills {
+            s.requires.retain(|r| {
+                let known = ids.contains(r);
+                if !known {
+                    problems.push(format!(
+                        "{}: requires \"{r}\", but there is no skill folder called that",
+                        s.id
+                    ));
+                }
+                known
+            });
+        }
+        Catalog {
+            skills,
+            problems,
             files,
-        })
+        }
+    }
+
+    /// The picture shown in the catalog, as a data URL.
+    pub fn thumbnail_data_url(&self, id: &str) -> Option<String> {
+        let rel = self.get(id)?.thumbnail.as_ref()?;
+        let bytes = self.files.get(&format!("{id}/{rel}"))?;
+        let mime = match rel.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()) {
+            Some(e) if e == "png" => "image/png",
+            Some(e) if e == "webp" => "image/webp",
+            Some(e) if e == "svg" => "image/svg+xml",
+            _ => "image/jpeg",
+        };
+        Some(format!("data:{mime};base64,{}", base64(bytes)))
     }
 
     pub fn get(&self, id: &str) -> Option<&SkillInfo> {
@@ -339,11 +623,15 @@ impl Catalog {
             .map(|b| String::from_utf8_lossy(b).into_owned())
     }
 
+    /// The files of one skill that are for the LLM (not its `skill.json` or
+    /// catalog thumbnail).
     fn files_of(&self, id: &str) -> Vec<(&str, &Vec<u8>)> {
         let prefix = format!("{id}/");
+        let thumb = self.get(id).and_then(|s| s.thumbnail.as_deref());
         self.files
             .iter()
             .filter_map(|(p, b)| p.strip_prefix(&prefix).map(|r| (r, b)))
+            .filter(|(r, _)| *r != META_FILE && Some(*r) != thumb)
             .collect()
     }
 
@@ -647,6 +935,9 @@ mod tests {
         fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
             for e in std::fs::read_dir(dir).unwrap() {
                 let p = e.unwrap().path();
+                if p.file_name().unwrap().to_string_lossy().starts_with('.') {
+                    continue;
+                }
                 if p.is_dir() {
                     walk(&p, root, out);
                 } else {
@@ -807,6 +1098,98 @@ mod tests {
         assert!(s.contains("parametric-design-headphone-hook skill"));
         assert!(s.contains("attached the 3 photos"));
         assert!(prompt_starter("hook.md", &req).contains("attached hook.md"));
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("pd-skills-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn builtin_skills_have_catalog_entries() {
+        let c = Catalog::builtin();
+        assert!(c.problems.is_empty(), "{:?}", c.problems);
+        assert_eq!(c.skills[0].id, "core-parametric");
+        let dove = c.get("connector-dovetail").unwrap();
+        assert_eq!(dove.category, "Connectors");
+        assert_eq!(dove.requires, ["multi-part"]);
+        // app-only files stay out of what the LLM gets
+        let files = c.skill_files("connector-dovetail").unwrap();
+        assert!(files.contains_key("SKILL.md") && !files.contains_key("skill.json"));
+    }
+
+    #[test]
+    fn a_folder_is_a_skill_and_broken_ones_are_reported() {
+        let dir = temp_dir("folder");
+        std::fs::create_dir_all(dir.join("hinge/images")).unwrap();
+        std::fs::write(
+            dir.join("hinge/SKILL.md"),
+            "---\nname: hinge\ndescription: Print-in-place hinges.\n---\n\n# Hinges\n\n![a](images/hinge.png)\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("hinge/thumbnail.png"), b"\x89PNG....").unwrap();
+        std::fs::write(dir.join("hinge/images/hinge.png"), b"\x89PNG").unwrap();
+        std::fs::create_dir_all(dir.join("broken")).unwrap();
+        std::fs::write(dir.join("broken/SKILL.md"), "---\nname: broken\n---\n").unwrap();
+        std::fs::write(dir.join("broken/skill.json"), "{ nope").unwrap();
+
+        let c = Catalog::installed(&dir).unwrap();
+        let h = c.get("hinge").unwrap();
+        assert_eq!((h.title.as_str(), h.category.as_str()), ("Hinge", "Other"));
+        assert_eq!(h.summary, "Print-in-place hinges.");
+        assert_eq!(h.thumbnail.as_deref(), Some("thumbnail.png"));
+        assert!(c
+            .thumbnail_data_url("hinge")
+            .unwrap()
+            .starts_with("data:image/png;base64,iVBORy4u"));
+        assert!(c.get("broken").is_none());
+        assert!(
+            c.problems
+                .iter()
+                .any(|p| p.starts_with("broken: skill.json")),
+            "{:?}",
+            c.problems
+        );
+        // the built-in skills were copied in next to it
+        assert!(c.get("core-parametric").is_some());
+        let zip = c
+            .bundle_files(&BundleRequest {
+                optional: vec!["hinge".into()],
+                ..Default::default()
+            })
+            .unwrap()
+            .1;
+        assert!(zip.contains_key("images/hinge/hinge.png"));
+        assert!(!zip.keys().any(|k| k.contains("thumbnail")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_keeps_edits_and_deletions() {
+        let dir = temp_dir("sync");
+        assert!(sync_builtin(&dir, false).unwrap() > 0);
+        assert_eq!(sync_builtin(&dir, false).unwrap(), 0);
+        let edited = dir.join("printability/SKILL.md");
+        std::fs::write(&edited, "---\nname: printability\n---\nmine").unwrap();
+        std::fs::remove_dir_all(dir.join("connector-magnet")).unwrap();
+        assert_eq!(sync_builtin(&dir, false).unwrap(), 0);
+        assert!(std::fs::read_to_string(&edited).unwrap().ends_with("mine"));
+        assert!(!dir.join("connector-magnet").exists());
+        // an untouched file that is out of date is updated
+        let old = dir.join("multi-part/SKILL.md");
+        std::fs::write(&old, "old").unwrap();
+        let mut record: BTreeMap<String, String> =
+            serde_json::from_slice(&std::fs::read(dir.join(SYNC_FILE)).unwrap()).unwrap();
+        record.insert("multi-part/SKILL.md".into(), fingerprint(b"old"));
+        std::fs::write(dir.join(SYNC_FILE), serde_json::to_string(&record).unwrap()).unwrap();
+        assert_eq!(sync_builtin(&dir, false).unwrap(), 1);
+        assert_ne!(std::fs::read_to_string(&old).unwrap(), "old");
+        // restore puts everything back
+        assert!(sync_builtin(&dir, true).unwrap() >= 2);
+        assert!(!std::fs::read_to_string(&edited).unwrap().ends_with("mine"));
+        assert!(dir.join("connector-magnet/SKILL.md").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

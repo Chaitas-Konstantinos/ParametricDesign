@@ -176,10 +176,33 @@ pub fn measure(design: &str, params: &str, opts: &str, queries: &str) -> Result<
 
 // --- skills --------------------------------------------------------------------
 
-/// The skill catalog: `[{id, title, core, group, requires, summary}]`.
+/// The skills: from the skills folder on the desktop, built in in the browser.
+fn catalog() -> Result<pd_skills::Catalog, String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    return pd_library::config::skills_catalog();
+    #[cfg(target_arch = "wasm32")]
+    return Ok(pd_skills::Catalog::builtin());
+}
+
+/// The skill catalog: `{skills: [{id, title, category, core, group, requires,
+/// summary, order, thumbnail}], problems: [text], folder}`, where `thumbnail`
+/// is a data URL and `folder` the skills folder (null in the browser).
 pub fn skills_catalog() -> Result<Json, String> {
-    let c = pd_skills::Catalog::load(None)?;
-    Ok(serde_json::to_value(&c.skills).unwrap())
+    let c = catalog()?;
+    let skills: Vec<Json> = c
+        .skills
+        .iter()
+        .map(|s| {
+            let mut v = serde_json::to_value(s).unwrap();
+            v["thumbnail"] = json!(c.thumbnail_data_url(&s.id));
+            v
+        })
+        .collect();
+    #[cfg(not(target_arch = "wasm32"))]
+    let folder = json!(pd_library::config::skills_dir().0.display().to_string());
+    #[cfg(target_arch = "wasm32")]
+    let folder = Json::Null;
+    Ok(json!({"skills": skills, "problems": c.problems, "folder": folder}))
 }
 
 fn bundle_request(request: &str) -> Result<pd_skills::BundleRequest, String> {
@@ -191,7 +214,7 @@ fn bundle_request(request: &str) -> Result<pd_skills::BundleRequest, String> {
 /// is what to paste into a chat once the skill is installed.
 pub fn skills_bundle(request: &str) -> Result<(Json, Vec<u8>), String> {
     let req = bundle_request(request)?;
-    let (name, zip) = pd_skills::Catalog::load(None)?.bundle_zip(&req)?;
+    let (name, zip) = catalog()?.bundle_zip(&req)?;
     let info = json!({
         "name": name,
         "fileName": format!("{name}.zip"),
@@ -202,7 +225,7 @@ pub fn skills_bundle(request: &str) -> Result<(Json, Vec<u8>), String> {
 
 /// One skill as a .zip.
 pub fn skill_zip(id: &str) -> Result<Vec<u8>, String> {
-    pd_skills::Catalog::load(None)?.skill_zip(id)
+    catalog()?.skill_zip(id)
 }
 
 /// Everything as one prompt: `{prompt, fileName, starter}`. The starter is what
@@ -210,7 +233,7 @@ pub fn skill_zip(id: &str) -> Result<Vec<u8>, String> {
 /// user picked another name).
 pub fn skills_prompt(request: &str, file_name: Option<&str>) -> Result<Json, String> {
     let req = bundle_request(request)?;
-    let c = pd_skills::Catalog::load(None)?;
+    let c = catalog()?;
     let file = match file_name {
         Some(f) => f.to_string(),
         None => format!("{}.md", c.bundle_name(&req)?),
@@ -265,8 +288,19 @@ mod tests {
 
     #[test]
     fn skills_api() {
+        // the repository's skills, read as-is (nothing written to the user's folder)
+        std::env::set_var(
+            "PD_SKILLS",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../skills"),
+        );
         let cat = skills_catalog().unwrap();
-        assert!(cat.as_array().unwrap().iter().any(|s| s["core"] == true));
+        assert!(cat["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["core"] == true));
+        assert_eq!(cat["problems"], json!([]));
+        assert!(cat["folder"].as_str().unwrap().ends_with("skills"));
         let req = r#"{"optional": ["connector-pin"], "title": "Long tray", "brief": "Two pieces", "photos": []}"#;
         let (info, zip) = skills_bundle(req).unwrap();
         assert_eq!(info["fileName"], "parametric-design-long-tray.zip");

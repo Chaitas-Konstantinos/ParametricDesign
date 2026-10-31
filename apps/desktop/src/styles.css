@@ -318,6 +318,10 @@ span.skill-check { width: 18px; display: grid; place-items: center; color: var(-
 .skill-notes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .skill-notes > span { padding: 1px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); color: var(--muted); }
 .send-grid { display: flex; flex-direction: column; gap: 12px; }
+.skills-head { align-items: center; gap: 8px; }
+.skill-thumb { flex: none; width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); background: var(--panel); }
+.skill-problems { display: flex; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--warn); color: var(--text); background: var(--panel2); }
+.skill-problems ul { margin: 4px 0 0; padding-left: 18px; font-size: 0.9rem; color: var(--muted); }
 .skill-group { margin: 4px 0 -4px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
 .send-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2); }
 .send-card.recommended { border-color: var(--accent-border); }
