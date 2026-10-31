@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../App";
-import type { Collection, Summary } from "../api";
+import type { Collection, Summary, VersionInfo } from "../api";
 import { Icon } from "../components/Icon";
 import { MenuButton, useUi, type MenuItem } from "../components/ui";
 import { fmtSize, timeAgo } from "../settings";
@@ -19,7 +19,9 @@ export function categoryOf(d: { category: string }): string {
 function TagEditor({ initialTags, initialCategory, onChange }: { initialTags: string[]; initialCategory: string; onChange: (tags: string, category: string) => void }) {
   const [tags, setTags] = useState(initialTags.join(", "));
   const [cat, setCat] = useState(initialCategory);
-  useEffect(() => onChange(tags, cat), [tags, cat]);
+  useEffect(() => {
+    onChange(tags, cat);
+  }, [tags, cat]);
   return (
     <div className="stack">
       <label className="field">
@@ -34,9 +36,36 @@ function TagEditor({ initialTags, initialCategory, onChange }: { initialTags: st
   );
 }
 
+function CombinePicker({ others, onChange }: { others: Summary[]; onChange: (id: string) => void }) {
+  const [pick, setPick] = useState(others[0]?.id ?? "");
+  useEffect(() => {
+    onChange(pick);
+  }, [pick]);
+  return (
+    <div className="stack">
+      <p className="muted">Its versions join this design's history in date order. The one changed last stays current, and the other design goes to the trash.</p>
+      <label className="field">
+        <span>Combine with</span>
+        <select value={pick} onChange={(e) => setPick(e.target.value)} autoFocus>
+          {others.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name} · v{o.currentVersion} · changed {timeAgo(o.modified)}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+const sameName = (n: string) => n.trim().toLowerCase();
+const KEPT_KEY = "pd-kept-separate-v1";
+
 function CollectionPicker({ collections, initial, onChange }: { collections: Collection[]; initial: string[]; onChange: (ids: string[]) => void }) {
   const [sel, setSel] = useState<string[]>(initial);
-  useEffect(() => onChange(sel), [sel]);
+  useEffect(() => {
+    onChange(sel);
+  }, [sel]);
   if (!collections.length) return <p className="muted">No collections yet. Create one with the + next to “Collections”.</p>;
   return (
     <div className="stack">
@@ -62,12 +91,21 @@ export function LibraryScreen() {
   const [error, setError] = useState<string | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const thumbsBusy = useRef(false);
+  const [versionsOf, setVersionsOf] = useState<Record<string, VersionInfo[]>>({});
+  const [keptSeparate, setKeptSeparate] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(KEPT_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
 
   const reload = async () => {
     try {
       const [list, cols] = await Promise.all([api.list(), api.collections()]);
       setItems(list);
       setCollections(cols);
+      setVersionsOf({});
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -116,6 +154,51 @@ export function LibraryScreen() {
   const live = (items ?? []).filter((d) => !d.trashed);
   const trashed = (items ?? []).filter((d) => d.trashed);
   const fromClaude = live.filter((d) => d.isNew);
+  // designs sharing a name, probably versions of one design (newest first)
+  const sameNameGroups = useMemo(() => {
+    const groups = new Map<string, Summary[]>();
+    for (const d of live) groups.set(sameName(d.name), [...(groups.get(sameName(d.name)) ?? []), d]);
+    return [...groups.values()].filter((g) => g.length > 1 && !keptSeparate.includes(sameName(g[0].name))).map((g) => [...g].sort((a, b) => b.modified - a.modified));
+  }, [items, keptSeparate]);
+
+  const loadVersions = (id: string) => {
+    api.detail(id).then(
+      (d) => setVersionsOf((m) => ({ ...m, [id]: d.versions })),
+      (e) => ui.toast(String(e), { kind: "error" }),
+    );
+  };
+  const versionMenu = (d: Summary): MenuItem[] => {
+    const vs = versionsOf[d.id];
+    if (!vs) return [{ label: "Loading versions…", disabled: true }];
+    return vs.map((v) => {
+      const current = v.num === d.currentVersion && !v.rejected;
+      return {
+        label: `v${v.num} · ${v.author === "claude" ? "Claude" : "You"}: ${v.message || "Saved"}${v.rejected ? " (not accepted)" : ""}`,
+        hint: current ? "current" : timeAgo(v.created),
+        checked: current,
+        run: () => void go(current ? { name: "editor", id: d.id } : { name: "editor", id: d.id, version: v.file }),
+      };
+    });
+  };
+
+  const combine = async (into: Summary, others: Summary[]) => {
+    try {
+      for (const o of others) await api.combine(into.id, o.id);
+      await reload();
+      ui.toast(`Combined into one “${into.name}”. The other ${others.length > 1 ? "copies are" : "copy is"} in the trash.`, { kind: "ok", action: { label: "Open", run: () => void go({ name: "editor", id: into.id }) } });
+    } catch (e) {
+      ui.toast(String(e), { kind: "error" });
+    }
+  };
+  const keepSeparate = (name: string) => {
+    const next = [...keptSeparate, sameName(name)];
+    setKeptSeparate(next);
+    try {
+      localStorage.setItem(KEPT_KEY, JSON.stringify(next));
+    } catch {
+      // only remembered for this session
+    }
+  };
   const recentCut = Date.now() - 14 * 24 * 3600 * 1000;
   const recent = live.filter((d) => Math.max(d.opened ?? 0, d.modified) > recentCut);
   const categories = useMemo(() => {
@@ -245,6 +328,25 @@ export function LibraryScreen() {
               const id = await api.duplicate(d.id, null, `${d.name} copy`);
               await reload();
               ui.toast(`Duplicated as “${d.name} copy”`, { kind: "ok", action: { label: "Open", run: () => void go({ name: "editor", id }) } });
+            },
+          },
+          {
+            label: "Combine with…",
+            icon: "layers",
+            run: async () => {
+              const others = live.filter((o) => o.id !== d.id).sort((a, b) => Number(sameName(b.name) === sameName(d.name)) - Number(sameName(a.name) === sameName(d.name)) || b.modified - a.modified);
+              if (!others.length) {
+                ui.toast("There is no other design to combine with.", { kind: "info" });
+                return;
+              }
+              let pick = others[0].id;
+              const r = await ui.dialog({
+                title: `Combine with “${d.name}”`,
+                body: <CombinePicker others={others} onChange={(id) => (pick = id)} />,
+                actions: [{ label: "Cancel", value: "cancel" }, { label: "Combine", value: "ok", kind: "primary" }],
+              });
+              const other = others.find((o) => o.id === pick);
+              if (r?.action === "ok" && other) await combine(d, [other]);
             },
           },
           {
@@ -489,6 +591,25 @@ export function LibraryScreen() {
             </button>
           )}
 
+          {view.kind === "all" &&
+            sameNameGroups.slice(0, 1).map((g) => (
+              <div key={g[0].id} className="banner">
+                <Icon name="layers" size={22} />
+                <span className="grow">
+                  <b>
+                    {g.length} designs are called “{g[0].name}”.
+                  </b>{" "}
+                  <span className="muted">Combine them into one design with all their versions?</span>
+                </span>
+                <button type="button" className="btn small" onClick={() => keepSeparate(g[0].name)}>
+                  Keep separate
+                </button>
+                <button type="button" className="btn primary small" onClick={() => void combine(g[0], g.slice(1))}>
+                  Combine
+                </button>
+              </div>
+            ))}
+
           {items && shown.length === 0 && (
             <div className="empty">
               <Icon name={view.kind === "trash" ? "trash" : "box"} size={40} />
@@ -557,11 +678,32 @@ export function LibraryScreen() {
                     <span className="card-title">{d.name}</span>
                     <MenuButton className="icon-btn small ghost" ariaLabel={`${d.name} options`} button={<Icon name="more" size={18} />} items={cardMenu(d)} align="right" />
                   </div>
-                  <span className="card-meta">
-                    {categoryOf(d)} · v{d.currentVersion}
-                    {d.info?.parts ? ` · ${d.info.parts} part${d.info.parts > 1 ? "s" : ""}` : ""}
-                    {d.presetCount ? ` · ${d.presetCount} preset${d.presetCount > 1 ? "s" : ""}` : ""}
-                  </span>
+                  <div className="card-meta">
+                    <span>{categoryOf(d)}</span>
+                    {d.trashed ? (
+                      <span>· v{d.currentVersion}</span>
+                    ) : (
+                      <MenuButton
+                        className="version-pill"
+                        ariaLabel={`Versions of ${d.name}: v${d.currentVersion} of ${d.versionCount}`}
+                        title="Versions"
+                        menuClassName="versions-menu"
+                        onOpen={() => loadVersions(d.id)}
+                        items={versionMenu(d)}
+                        button={
+                          <>
+                            v{d.currentVersion}
+                            {d.versionCount > 1 && <span className="of">/{d.versionCount}</span>}
+                            <Icon name="chevronDown" size={14} />
+                          </>
+                        }
+                      />
+                    )}
+                    <span>
+                      {d.info?.parts ? `${d.info.parts} part${d.info.parts > 1 ? "s" : ""}` : ""}
+                      {d.presetCount ? ` · ${d.presetCount} preset${d.presetCount > 1 ? "s" : ""}` : ""}
+                    </span>
+                  </div>
                   <div className="card-foot">
                     <span>{d.trashed ? `Deleted ${timeAgo(d.trashed)}` : `${d.isNew ? "Arrived" : "Changed"} ${timeAgo(d.modified)}`}</span>
                     <span>{fmtSize(d.info?.size, settings.units)}</span>

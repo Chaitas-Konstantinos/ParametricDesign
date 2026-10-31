@@ -305,7 +305,9 @@ Library and editor (after M1, from user feedback):
 - Library home in a folder the user picks (OneDrive/Dropbox-safe): every save is a
   new immutable version file, so sync conflicts become extra versions instead of
   lost work. Favorites, recent, collections, categories, tags, search, trash,
-  automatic thumbnails, import of .pd.json / .3mf.
+  automatic thumbnails, import of .pd.json / .3mf. A version tag on each card opens any
+  version; two designs (for example two with the same name) can be combined into one
+  history, ordered by date.
 - Editor: view cube and standard views, ortho/perspective, display modes (shaded,
   shaded + edges, wireframe, x-ray), measure with snapping, section with caps, build
   plate, exploded view, undo/redo, named presets, manual Save with auto-written

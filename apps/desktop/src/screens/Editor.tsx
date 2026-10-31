@@ -39,7 +39,7 @@ function fixItMessage(name: string, issues: Issue[]): string {
   return `ParametricDesign reports these problems with “${name}”. Please fix all of them and send the corrected design (open_in_app mode "update"):\n\n${lines.join("\n")}`;
 }
 
-export function EditorScreen({ id, review }: { id: string; review?: string }) {
+export function EditorScreen({ id, review, version: openVersion }: { id: string; review?: string; version?: string }) {
   const { api, settings, colors, go, leaveGuard, lastInbox, bumpLibrary } = useApp();
   const ui = useUi();
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -67,6 +67,8 @@ export function EditorScreen({ id, review }: { id: string; review?: string }) {
   const [versionsOpen, setVersionsOpen] = useState(false);
   // after loading a version: turn its saved values into a full set (keepSaved: restoring, so the old save stays the reference)
   const normalize = useRef<{ params: Params; keepSaved: boolean } | null>(null);
+  // a version picked in the library: shown once the current one has loaded
+  const showVersion = useRef<string | null>(openVersion ?? null);
   const [tick, setTick] = useState(0);
   const needsThumb = useRef(false);
   const history = useRef<{ past: Params[]; future: Params[]; last: { key: string; t: number } | null }>({ past: [], future: [], last: null });
@@ -96,6 +98,8 @@ export function EditorScreen({ id, review }: { id: string; review?: string }) {
       try {
         const d = await api.detail(id);
         setDetail(d);
+        const pick = d.versions.find((v) => v.file === showVersion.current);
+        if (!pick || (pick.num === d.meta.currentVersion && !pick.rejected)) showVersion.current = null;
         const { text } = await loadVersion();
         setSavedText(text);
         void api.updateMeta(id, { opened: Date.now(), isNew: false });
@@ -123,6 +127,12 @@ export function EditorScreen({ id, review }: { id: string; review?: string }) {
           normalize.current = null;
           setValues(full);
           if (!keep) setSaved(full);
+          if (!keep && showVersion.current) {
+            const file = showVersion.current;
+            showVersion.current = null;
+            const num = Number(/^v(\d+)-/.exec(file)?.[1] ?? 0);
+            void restore(file, num).then(() => ui.toast(`Showing v${num}. Save (Ctrl+S) to make it the current version.`, { kind: "info" }));
+          }
         }
         if (ev.meshes.length) {
           setLastGood(ev);
@@ -799,7 +809,17 @@ export function EditorScreen({ id, review }: { id: string; review?: string }) {
             ui.toast("Update accepted and saved", { kind: "ok" });
           }}
           onSaveAsNew={async (text, params) => {
-            const nid = await api.create(text, params, "claude", compare.message || "Update from Claude, saved as a new design");
+            const newName = await ui.prompt("Save as a new design", "Name of the new design", `${name} (2)`, "Save");
+            if (!newName) return;
+            let designText = text;
+            try {
+              const j = JSON.parse(text);
+              j.meta = { ...(j.meta ?? {}), name: newName };
+              designText = JSON.stringify(j, null, 2);
+            } catch {
+              // keep the text as it is; the library names it from the design
+            }
+            const nid = await api.create(designText, params, "claude", compare.message || "Update from Claude, saved as a new design");
             await api.removePending(id, compare.file);
             setCompare(null);
             await reloadDetail();

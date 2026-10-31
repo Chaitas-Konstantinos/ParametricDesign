@@ -213,6 +213,8 @@ export interface Api {
   setThumbnail(id: string, pngDataUrl: string): Promise<void>;
   deleteForever(id: string): Promise<void>;
   duplicate(id: string, file: string | null, name: string): Promise<string>;
+  /** Joins `other`'s versions into `id` (renumbered by date); `other` goes to the trash. */
+  combine(id: string, other: string): Promise<DesignMeta>;
   readPending(id: string, file: string): Promise<{ design: unknown; message: string; created: number }>;
   removePending(id: string, file: string): Promise<void>;
   collections(): Promise<Collection[]>;
@@ -292,6 +294,7 @@ async function desktopApi(): Promise<Api> {
     setThumbnail: (id, png) => invoke("library_set_thumbnail", { id, png }),
     deleteForever: (id) => invoke("library_delete", { id }),
     duplicate: (id, file, name) => invoke("library_duplicate", { id, file, name }),
+    combine: (id, other) => invoke("library_combine", { id, other }),
     readPending: (id, file) => invoke("library_read_pending", { id, file }),
     removePending: (id, file) => invoke("library_remove_pending", { id, file }),
     collections: async () => ((await invoke("library_collections")) as Collection[]) ?? [],
@@ -503,6 +506,43 @@ async function browserApi(): Promise<Api> {
       n.thumbnail = src.thumbnail;
       commit();
       return nid;
+    },
+    async combine(id, other) {
+      if (id === other) throw new Error("pick two different designs");
+      const a = get(id);
+      const b = get(other);
+      const from = b.meta.modified > a.meta.modified ? b : a;
+      const all = [a, b]
+        .flatMap((d) =>
+          d.versions.map((v) => ({
+            ...v,
+            message: d === b && b.meta.name !== a.meta.name ? `${v.message || "Saved"} (from “${b.meta.name}”)` : v.message,
+            current: d === from && v.num === from.meta.currentVersion && !v.rejected,
+          })),
+        )
+        .sort((x, y) => x.created - y.created);
+      let current = 0;
+      const joined: VersionFile[] = all.map(({ current: isCurrent, ...v }, i) => {
+        const num = i + 1;
+        if (isCurrent) current = num;
+        return { ...v, num, file: `v${String(num).padStart(4, "0")}-${v.created}.json` };
+      });
+      a.versions = joined.reverse();
+      a.meta.currentVersion = current || (a.versions.find((v) => !v.rejected)?.num ?? 0);
+      a.meta.modified = Math.max(a.meta.modified, b.meta.modified);
+      a.meta.favorite = a.meta.favorite || b.meta.favorite;
+      a.meta.isNew = false;
+      a.meta.collections = [...new Set([...a.meta.collections, ...b.meta.collections])];
+      a.meta.tags = [...new Set([...a.meta.tags, ...b.meta.tags])];
+      a.presets = [...a.presets, ...b.presets.filter((p) => !a.presets.some((q) => q.name === p.name))];
+      a.pending = [...a.pending, ...b.pending];
+      if (from === b) {
+        a.thumbnail = b.thumbnail;
+        a.meta.info = b.meta.info;
+      }
+      b.meta.trashed = Date.now();
+      commit();
+      return a.meta;
     },
     async readPending(id, file) {
       const p = get(id).pending.find((x) => x.file === file);

@@ -116,7 +116,9 @@ export function AskScreen() {
     draft = req;
   }, [req]);
   // an answer shown for an older version of the request would be misleading
-  useEffect(() => setResult(null), [req]);
+  useEffect(() => {
+    setResult(null);
+  }, [req]);
 
   useEffect(() => {
     if (catalogCache) return;

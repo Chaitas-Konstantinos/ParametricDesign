@@ -81,7 +81,7 @@ Run these in `apps\desktop`, where your terminal already is.
   only, under `%LOCALAPPDATA%`, and Claude would keep using the old `pd.exe`.
 - [ ] Check that Settings → Apps lists one ParametricDesign, version 0.2.0.
 - [ ] In Claude Code, run `/mcp` and reconnect `parametricdesign`: it should show
-  9 tools (`get_open_design` and `get_design_request` are the new ones).
+  10 tools (`get_open_design`, `list_designs` and `get_design_request` are new).
 - [ ] First start: choose the library folder (`Documents\ParametricDesign Library`,
   or a OneDrive folder), your printer, and keep "Add 5 example designs".
 - [ ] Bring in the designs Claude sent to 0.1.0: **New design → Import…**, from
@@ -110,7 +110,15 @@ Send screenshots of anything wrong, slow or confusing.
 - [ ] Favorites, Recent, New from Claude.
 - [ ] Trash: move to trash, restore, delete forever, empty trash.
 - [ ] Collections: create, rename, delete, and put one design in several.
-- [ ] Card menu (⋯): rename, duplicate, tags and category, collections.
+- [ ] Card menu (⋯): fully visible, also near the bottom of the window; rename,
+  duplicate, tags and category, collections.
+- [ ] The version tag on a card (v3/3): lists the versions; picking an older one opens
+  it in the editor, and Save makes it current.
+- [ ] Two designs with the same name: the banner offers Combine; afterwards one card
+  holds all versions in date order and the other copy is in the trash. "Combine
+  with…" in the card menu does the same for any two designs.
+- [ ] Ask Claude to change a design that isn't open ("make the wall spacer 10 mm
+  longer"): it finds it with `list_designs` and sends an update, not a second design.
 - [ ] Import a `.pd.json` and a `.3mf` (including one exported by the app); paste
   JSON.
 
@@ -431,9 +439,9 @@ Not planned; kept here so nothing is lost.
   so the file reopens editable.
 - [x] Preview images rendered without a screen, so LLMs can see their design.
 - [x] The `pd` command line.
-- [x] MCP server with 9 tools: `validate_design`, `render_preview`, `measure`,
-  `get_open_design`, `get_design_request`, `open_in_app`, `export_design`,
-  `list_components`, `get_design_guide`.
+- [x] MCP server with 10 tools: `validate_design`, `render_preview`, `measure`,
+  `get_open_design`, `list_designs`, `get_design_request`, `open_in_app`,
+  `export_design`, `list_components`, `get_design_guide`.
 - [x] 10 skills: 3 core (core-parametric, printability, from-photos) and 7 optional
   (multi-part, snap-fit, dovetail, pin, magnet and screw connectors,
   electronics enclosure). They bundle into one tailored skill or one prompt from
@@ -483,3 +491,17 @@ Not planned; kept here so nothing is lost.
   for Smart App Control to block. The command line exports `.zip` files too.
 - [x] CI: the Windows installer is built only on demand; the Linux job also
   type-checks and builds the interface, and a newer push cancels an older run.
+
+**Library fixes (from your screenshots)**
+- [x] Menus float above the page, so cards no longer cut the ⋯ menu off; near the
+  bottom of the window they open upwards.
+- [x] A clickable version tag on every card (v3/3) lists the versions and opens any
+  of them in the editor.
+- [x] Combine: designs with the same name get a banner offering to combine them
+  into one design with all versions in date order (the other copy goes to the
+  trash); "Combine with…" in the card menu does it for any two designs.
+- [x] Fewer duplicates: Claude can find designs in your library (`list_designs`)
+  and update them instead of making a new one, and "Save as a new design" asks
+  for a new name.
+- [x] Fixed a crash when changing values in the Tags & category and Collections
+  dialogs.

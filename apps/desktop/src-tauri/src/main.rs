@@ -239,6 +239,12 @@ fn library_duplicate(
     with_lib(&state, |l| l.duplicate(&id, file.as_deref(), &name))
 }
 
+/// Join `other`'s versions into `id`; `other` goes to the trash.
+#[tauri::command(async)]
+fn library_combine(state: State<AppState>, id: String, other: String) -> R<pd_library::DesignMeta> {
+    with_lib(&state, |l| l.combine(&id, &other))
+}
+
 #[tauri::command(async)]
 fn library_read_pending(state: State<AppState>, id: String, file: String) -> R<Json> {
     with_lib(&state, |l| l.read_pending(&id, &file))
@@ -360,6 +366,7 @@ fn main() {
             library_set_thumbnail,
             library_delete,
             library_duplicate,
+            library_combine,
             library_read_pending,
             library_remove_pending,
             library_collections,

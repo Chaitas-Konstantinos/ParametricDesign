@@ -9,7 +9,7 @@ import { EditorScreen } from "./screens/Editor";
 import { SettingsScreen } from "./screens/Settings";
 import { AskScreen } from "./screens/Ask";
 
-export type Route = { name: "loading" } | { name: "welcome" } | { name: "library" } | { name: "ask" } | { name: "editor"; id: string; review?: string } | { name: "settings"; back: Route };
+export type Route = { name: "loading" } | { name: "welcome" } | { name: "library" } | { name: "ask" } | { name: "editor"; id: string; review?: string; version?: string } | { name: "settings"; back: Route };
 
 interface AppState {
   api: Api;
@@ -137,7 +137,7 @@ function Shell({ api }: { api: Api }) {
       {route.name === "welcome" && <SettingsScreen welcome />}
       {route.name === "library" && <LibraryScreen />}
       {route.name === "ask" && <AskScreen />}
-      {route.name === "editor" && <EditorScreen key={route.id} id={route.id} review={route.review} />}
+      {route.name === "editor" && <EditorScreen key={`${route.id}/${route.version ?? ""}`} id={route.id} review={route.review} version={route.version} />}
       {route.name === "settings" && <SettingsScreen back={route.back} />}
     </Ctx.Provider>
   );

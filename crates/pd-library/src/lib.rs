@@ -350,6 +350,18 @@ impl Library {
         out
     }
 
+    /// Every design's metadata, newest change first, without the thumbnails.
+    pub fn metas(&self) -> Vec<DesignMeta> {
+        let mut out: Vec<DesignMeta> = std::fs::read_dir(self.root.join("designs"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| self.meta(&e.file_name().to_string_lossy()).ok())
+            .collect();
+        out.sort_by_key(|m| std::cmp::Reverse(m.modified));
+        out
+    }
+
     pub fn detail(&self, id: &str) -> Result<Detail, String> {
         Ok(Detail {
             meta: self.meta(id)?,
@@ -536,6 +548,105 @@ impl Library {
             let _ = self.set_thumbnail(&new_id, &png);
         }
         Ok(new_id)
+    }
+
+    /// Make one design out of two: every version of `other` joins `id`'s
+    /// history, renumbered by date, and `other` goes to the trash. The design
+    /// that was changed last decides which version is current.
+    pub fn combine(&self, id: &str, other: &str) -> Result<DesignMeta, String> {
+        if id == other {
+            return Err("pick two different designs".into());
+        }
+        let vdir = self.dir(id)?.join("versions");
+        let odir = self.dir(other)?;
+        let mut meta = self.meta(id)?;
+        let o = self.meta(other)?;
+        let current_from = if o.modified > meta.modified {
+            other
+        } else {
+            id
+        };
+        let mut all: Vec<(u64, Json, bool)> = vec![];
+        for (did, m) in [(id, &meta), (other, &o)] {
+            for v in self.versions(did)? {
+                let mut body = self.read_version(did, &v.file)?;
+                if did == other && o.name != meta.name {
+                    let msg = if v.message.is_empty() {
+                        "Saved"
+                    } else {
+                        &v.message
+                    };
+                    body["message"] = json!(format!("{msg} (from “{}”)", o.name));
+                }
+                let current = did == current_from && v.num == m.current_version && !v.rejected;
+                all.push((v.created, body, current));
+            }
+        }
+        all.sort_by_key(|(created, ..)| *created);
+
+        // Write the joined history first, then drop the old file names.
+        let old: Vec<String> = self.versions(id)?.into_iter().map(|v| v.file).collect();
+        let mut written = vec![];
+        let mut current = 0;
+        for (i, (created, mut body, is_current)) in all.into_iter().enumerate() {
+            let num = i as u32 + 1;
+            let file = format!("v{num:04}-{created}.json");
+            body["num"] = json!(num);
+            body["file"] = json!(file);
+            write_json(&vdir.join(&file), &body)?;
+            if is_current {
+                current = num;
+            }
+            written.push(file);
+        }
+        for f in old.iter().filter(|f| !written.contains(f)) {
+            let _ = std::fs::remove_file(vdir.join(f));
+        }
+
+        let mut presets = self.presets(id)?;
+        for p in self.presets(other)? {
+            if !presets.iter().any(|q| q.name == p.name) {
+                presets.push(p);
+            }
+        }
+        self.set_presets(id, &presets)?;
+        for p in self.pending(other)? {
+            if let Ok(j) = self.read_pending(other, &p.file) {
+                write_json(&self.dir(id)?.join("pending").join(&p.file), &j)?;
+            }
+        }
+
+        if current == 0 {
+            current = self
+                .versions(id)?
+                .iter()
+                .find(|v| !v.rejected)
+                .map(|v| v.num)
+                .unwrap_or(0);
+        }
+        meta.current_version = current;
+        meta.modified = meta.modified.max(o.modified);
+        meta.favorite |= o.favorite;
+        meta.is_new = false;
+        for c in &o.collections {
+            if !meta.collections.contains(c) {
+                meta.collections.push(c.clone());
+            }
+        }
+        for t in &o.tags {
+            if !meta.tags.contains(t) {
+                meta.tags.push(t.clone());
+            }
+        }
+        if current_from == other {
+            meta.info = o.info.clone();
+            if let Ok(png) = std::fs::read(odir.join("thumb.png")) {
+                self.set_thumbnail(id, &png)?;
+            }
+        }
+        self.write_meta(&meta)?;
+        self.update_meta(other, &json!({"trashed": now_ms()}))?;
+        Ok(meta)
     }
 
     pub fn add_pending(&self, id: &str, design: &Json, message: &str) -> Result<String, String> {
@@ -793,5 +904,73 @@ mod tests {
         lib.set_collections(&json!([{"id": "desk", "name": "Desk setup"}]))
             .unwrap();
         assert_eq!(lib.collections()[0]["name"], "Desk setup");
+    }
+
+    #[test]
+    fn combine_joins_histories_by_date() {
+        let lib = temp_lib("combine");
+        let a = lib
+            .create(
+                &design("Wall spacer"),
+                &json!({"len": 1880}),
+                "claude",
+                "First",
+                true,
+            )
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let b = lib
+            .create(
+                &design("Wall spacer"),
+                &json!({"len": 1870}),
+                "claude",
+                "Second",
+                true,
+            )
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        lib.save_version(
+            &b,
+            &design("Wall spacer"),
+            &json!({"len": 1860}),
+            "you",
+            "Shorter",
+            false,
+        )
+        .unwrap();
+        lib.set_presets(
+            &a,
+            &[Preset {
+                name: "Hall".into(),
+                params: json!({"len": 900}),
+            }],
+        )
+        .unwrap();
+        lib.add_pending(&a, &design("Wall spacer"), "pending for a")
+            .unwrap();
+
+        // b was changed last, so its current version (now the third by date) stays current
+        let m = lib.combine(&a, &b).unwrap();
+        let v = lib.versions(&a).unwrap();
+        assert_eq!(v.iter().map(|v| v.num).collect::<Vec<_>>(), [3, 2, 1]);
+        assert_eq!(
+            v.iter().map(|v| v.message.as_str()).collect::<Vec<_>>(),
+            ["Shorter", "Second", "First"]
+        );
+        assert_eq!(m.current_version, 3);
+        assert_eq!(lib.current_version(&a).unwrap()["params"]["len"], 1860);
+        assert!(v
+            .iter()
+            .all(|v| v.file.starts_with(&format!("v{:04}-", v.num))));
+        assert_eq!(
+            std::fs::read_dir(lib.root.join("designs").join(&a).join("versions"))
+                .unwrap()
+                .count(),
+            3
+        );
+        assert_eq!(lib.presets(&a).unwrap().len(), 1);
+        assert!(lib.meta(&b).unwrap().trashed.is_some());
+        assert!(!lib.meta(&a).unwrap().is_new);
+        assert!(lib.combine(&a, &a).is_err());
     }
 }

@@ -17,7 +17,8 @@ Workflow: (1) if the user says they prepared a request in the app (\"my request\
 get_design_request: it holds their description, photos, printer and chosen skills; (2) if you have not loaded the \
 ParametricDesign skill, call get_design_guide first (with the skills the request names); (3) if the user talks about \
 the design they have open (\"this box\", \"make it taller\"), call get_open_design and change THAT design, keeping \
-its params and ids; (4) write the design; (5) call validate_design and fix every error; (6) call render_preview and \
+its params and ids; if it is not open, find it with list_designs and update it by its design_id instead of making a \
+duplicate; (4) write the design; (5) call validate_design and fix every error; (6) call render_preview and \
 look at the images to confirm the shape matches the request; use measure for fits and clearances; (7) when it is \
 right, call open_in_app: mode \"update\" for a change to the open design (the user sees a side-by-side compare and \
 accepts it), mode \"new\" for a different design (it is added to their library). \
@@ -88,6 +89,13 @@ fn tools() -> Json {
             "annotations": {"readOnlyHint": true}
         },
         {
+            "name": "list_designs",
+            "title": "Find designs in the library",
+            "description": "Lists the designs in the user's ParametricDesign library, newest change first: design_id, name, category, current version and when it last changed. Pass query to search names, categories and tags. Use it when the user means a design that is not open in the app; change it with open_in_app mode \"update\" and its design_id rather than creating a new design with the same name.",
+            "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "Words from the design's name, category or tags."}}},
+            "annotations": {"readOnlyHint": true}
+        },
+        {
             "name": "get_design_request",
             "title": "Get the design request prepared in the app",
             "description": "Returns the newest design request the user prepared in the ParametricDesign app (New design -> Design with AI): their description, reference photos (as images), their printer and the optional skills they picked. Call this when the user says they prepared or sent a request in the app, then design it and send it with open_in_app mode \"new\".",
@@ -97,11 +105,11 @@ fn tools() -> Json {
         {
             "name": "open_in_app",
             "title": "Send to ParametricDesign",
-            "description": "Sends a validated design to the ParametricDesign app. mode \"new\" (default): adds it to the user's library as a new design. mode \"update\": proposes it as a new version of an existing design (design_id from get_open_design); the app shows the old and new side by side and the user accepts or rejects it. Give a short message saying what changed. Only call this after validate_design passes.",
+            "description": "Sends a validated design to the ParametricDesign app. mode \"new\" (default): adds it to the user's library as a new design. mode \"update\": proposes it as a new version of an existing design (design_id from get_open_design or list_designs); the app shows the old and new side by side and the user accepts or rejects it. Give a short message saying what changed. Only call this after validate_design passes.",
             "inputSchema": {"type": "object", "properties": {
                 "design": design,
                 "mode": {"type": "string", "enum": ["new", "update"], "description": "new = another design; update = change to an existing design."},
-                "design_id": {"type": "string", "description": "For mode update: the id from get_open_design. Defaults to the design open in the app."},
+                "design_id": {"type": "string", "description": "For mode update: the id from get_open_design or list_designs. Defaults to the design open in the app."},
                 "message": {"type": "string", "description": "What changed or what this is, in one sentence (shown to the user)."}
             }, "required": ["design"]}
         },
@@ -177,6 +185,18 @@ fn built(
             "The design does not build, so there is nothing to show yet.\n\n{}",
             report.to_text()
         ))),
+    }
+}
+
+/// "5 minutes ago", "yesterday"...
+fn ago(ms: u64) -> String {
+    let mins = pd_library::now_ms().saturating_sub(ms) / 60_000;
+    match mins {
+        0 => "just now".into(),
+        1..=59 => format!("{mins} minutes ago"),
+        60..=1439 => format!("{} hours ago", mins / 60),
+        1440..=2879 => "yesterday".into(),
+        _ => format!("{} days ago", mins / 1440),
     }
 }
 
@@ -384,7 +404,7 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
             };
             if !cur.get("open").and_then(|o| o.as_bool()).unwrap_or(false) {
                 return Ok(
-                    json!({"content": [text("No design is open in the ParametricDesign app right now (the user is in the library). Ask which design they mean, or create a new one with open_in_app mode \"new\".")]}),
+                    json!({"content": [text("No design is open in the ParametricDesign app right now (the user is in the library). If they mean a design they already have, find it with list_designs and send the change with open_in_app mode \"update\" and its design_id; use mode \"new\" only for a different object.")]}),
                 );
             }
             let summary = format!(
@@ -400,6 +420,45 @@ pub fn call_tool(name: &str, args: &Json) -> Json {
                 "params": cur.get("params"), "design": cur.get("design")
             })).unwrap())]}),
             )
+        }
+        "list_designs" => {
+            let Some(root) = pd_library::config::library_path() else {
+                return Ok(
+                    json!({"content": [text("The ParametricDesign app has no library folder yet. Ask the user to open the app once and choose one.")]}),
+                );
+            };
+            let lib = pd_library::Library::open(root).map_err(tool_error)?;
+            let q = args
+                .get("query")
+                .and_then(|q| q.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            let rows: Vec<Json> = lib
+                .metas()
+                .into_iter()
+                .filter(|m| m.trashed.is_none())
+                .filter(|m| {
+                    q.is_empty()
+                        || m.name.to_lowercase().contains(&q)
+                        || m.category.to_lowercase().contains(&q)
+                        || m.tags.iter().any(|t| t.to_lowercase().contains(&q))
+                })
+                .take(50)
+                .map(|m| {
+                    json!({"design_id": m.id, "name": m.name, "category": m.category,
+                           "version": m.current_version, "changed": ago(m.modified)})
+                })
+                .collect();
+            let head = if rows.is_empty() {
+                "No designs match.".to_string()
+            } else {
+                format!(
+                    "{} design(s). To change one, send it with open_in_app mode \"update\" and its design_id.",
+                    rows.len()
+                )
+            };
+            Ok(json!({"content": [text(head), text(serde_json::to_string_pretty(&rows).unwrap())]}))
         }
         "get_design_request" => {
             let Some((dir, req)) = pd_library::config::latest_request() else {
@@ -689,7 +748,7 @@ mod tests {
             handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none()
         );
         let r = handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).unwrap();
-        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 9);
+        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 10);
     }
 
     #[test]
@@ -736,6 +795,27 @@ mod tests {
         assert_eq!(item["kind"], "update");
         assert_eq!(item["designId"], "cup-1");
         assert_eq!(item["message"], "taller");
+
+        // a design in the library that is not open: found by name, updated by id
+        let lib_dir = home.join("library");
+        pd_library::config::save_settings(&json!({"libraryPath": lib_dir})).unwrap();
+        let lib = pd_library::Library::open(&lib_dir).unwrap();
+        let spacer = lib
+            .create(&json!({"format": "pd/0.1", "meta": {"name": "Wall spacer", "tags": ["furniture"]}, "parts": [{"id": "a", "shape": {"type": "box", "size": [20, 20, 100]}}]}), &json!({}), "claude", "First", true)
+            .unwrap();
+        pd_library::config::write_current(&json!({"open": false})).unwrap();
+        let r = call_tool("list_designs", &json!({"query": "furni"}));
+        assert!(r["content"][1]["text"].as_str().unwrap().contains(&spacer));
+        let r = call_tool("list_designs", &json!({"query": "nothing like it"}));
+        assert_eq!(r["content"][0]["text"], "No designs match.");
+        let r = call_tool(
+            "open_in_app",
+            &json!({"design": d, "mode": "update", "design_id": spacer, "message": "longer"}),
+        );
+        assert!(r.get("isError").is_none(), "{r}");
+        let ev = lib.process_inbox(&home.join("inbox"));
+        assert_eq!(ev.len(), 2, "the earlier update and this one");
+        assert!(ev.iter().any(|e| e.kind == "update" && e.id == spacer));
 
         // a request prepared in the app (same test: PD_HOME is process-wide)
         let r = call_tool("get_design_request", &json!({}));

@@ -1,5 +1,6 @@
 // Dialogs, menus and toasts used across the app.
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
 export interface DialogAction {
@@ -155,28 +156,93 @@ export interface MenuItem {
   hint?: string;
 }
 
-/** A button that opens a dropdown menu. */
-export function MenuButton({ button, items, align = "left", className, ariaLabel, title, up }: { button: React.ReactNode; items: MenuItem[]; align?: "left" | "right"; className?: string; ariaLabel?: string; title?: string; up?: boolean }) {
+/** A button that opens a dropdown menu. The menu floats above everything
+ *  (cards and scroll areas don't cut it off): below the button, or above it
+ *  when there is no room, kept inside the window. */
+export function MenuButton({
+  button,
+  items,
+  align = "left",
+  className,
+  ariaLabel,
+  title,
+  up,
+  onOpen,
+  menuClassName,
+}: {
+  button: React.ReactNode;
+  items: MenuItem[];
+  align?: "left" | "right";
+  className?: string;
+  ariaLabel?: string;
+  title?: string;
+  up?: boolean;
+  onOpen?: () => void;
+  menuClassName?: string;
+}) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  // below the button, or above it when there is no room; inside the window
+  const place = useCallback(() => {
+    if (!btn.current || !menu.current) return;
+    const b = btn.current.getBoundingClientRect();
+    if (b.bottom < 0 || b.top > window.innerHeight) {
+      setOpen(false); // its button scrolled away
+      return;
+    }
+    const m = menu.current.getBoundingClientRect();
+    const gap = 6;
+    const pad = 8;
+    const left = Math.max(pad, Math.min(align === "right" ? b.right - m.width : b.left, window.innerWidth - m.width - pad));
+    const below = b.bottom + gap;
+    const above = b.top - gap - m.height;
+    const fitsBelow = below + m.height <= window.innerHeight - pad;
+    const fitsAbove = above >= pad;
+    const top = (up ? fitsAbove || !fitsBelow : !fitsBelow && fitsAbove) ? above : below;
+    setPos({ top: Math.max(pad, Math.min(top, window.innerHeight - m.height - pad)), left });
+  }, [align, up]);
+
+  useLayoutEffect(() => {
+    if (open) place();
+  }, [open, items.length, place]);
+
   useEffect(() => {
     if (!open) return;
+    const inside = (t: EventTarget | null) => !!t && (btn.current?.contains(t as Node) || menu.current?.contains(t as Node));
     const off = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      if (!inside(e.target)) setOpen(false);
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+    // follow the button while the page scrolls
+    let frame = 0;
+    const follow = (e: Event) => {
+      if (menu.current?.contains(e.target as Node)) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(place);
+    };
+    const resized = () => setOpen(false);
     document.addEventListener("mousedown", off);
     document.addEventListener("keydown", key);
+    window.addEventListener("scroll", follow, true);
+    window.addEventListener("resize", resized);
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("mousedown", off);
       document.removeEventListener("keydown", key);
+      window.removeEventListener("scroll", follow, true);
+      window.removeEventListener("resize", resized);
     };
-  }, [open]);
+  }, [open, place]);
+
   return (
-    <div className="menu-anchor" ref={ref}>
+    <div className="menu-anchor">
       <button
+        ref={btn}
         type="button"
         className={className ?? "btn"}
         aria-haspopup="menu"
@@ -185,36 +251,57 @@ export function MenuButton({ button, items, align = "left", className, ariaLabel
         title={title}
         onClick={(e) => {
           e.stopPropagation();
+          if (!open) {
+            setPos(null);
+            onOpen?.();
+          }
           setOpen((o) => !o);
+        }}
+        onKeyDown={(e) => {
+          // Enter/Space press this button only, not a clickable card around it
+          if (e.key === "Enter" || e.key === " ") e.stopPropagation();
         }}
       >
         {button}
       </button>
-      {open && (
-        <div className={`menu ${align} ${up ? "up" : ""}`} role="menu" onClick={(e) => e.stopPropagation()}>
-          {items.map((it, i) =>
-            it.divider ? (
-              <div key={i} className="menu-divider" />
-            ) : (
-              <button
-                key={i}
-                type="button"
-                role="menuitem"
-                className={`menu-item ${it.danger ? "danger" : ""}`}
-                disabled={it.disabled}
-                onClick={() => {
-                  setOpen(false);
-                  it.run?.();
-                }}
-              >
-                <span className="menu-icon">{it.checked !== undefined ? it.checked ? <Icon name="check" size={16} /> : null : it.icon ? <Icon name={it.icon} size={17} /> : null}</span>
-                <span className="menu-label">{it.label}</span>
-                {it.hint && <span className="menu-hint">{it.hint}</span>}
-              </button>
-            ),
-          )}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={menu}
+            className={`menu floating ${menuClassName ?? ""}`}
+            role="menu"
+            style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setOpen(false);
+              e.stopPropagation();
+            }}
+          >
+            {items.map((it, i) =>
+              it.divider ? (
+                <div key={i} className="menu-divider" />
+              ) : (
+                <button
+                  key={i}
+                  type="button"
+                  role="menuitem"
+                  className={`menu-item ${it.danger ? "danger" : ""}`}
+                  disabled={it.disabled}
+                  onClick={() => {
+                    setOpen(false);
+                    it.run?.();
+                  }}
+                >
+                  <span className="menu-icon">{it.checked !== undefined ? it.checked ? <Icon name="check" size={16} /> : null : it.icon ? <Icon name={it.icon} size={17} /> : null}</span>
+                  <span className="menu-label">{it.label}</span>
+                  {it.hint && <span className="menu-hint">{it.hint}</span>}
+                </button>
+              ),
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
